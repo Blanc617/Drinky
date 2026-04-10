@@ -12,6 +12,7 @@ type CellState = 'idle' | 'mole' | 'bomb'
 const GRID_SIZE = 9
 const ROUNDS = 5
 const DISPLAY_DURATION = 600 // 두더지/폭탄 표시 시간 (ms)
+const ROUND_DELAYS = [200, 180, 160, 160, 160] // 라운드별 대기 간격 (ms)
 
 export default function ReactionTest({ onComplete }: Props) {
   const [phase, setPhase] = useState<Phase>('intro')
@@ -47,7 +48,7 @@ export default function ReactionTest({ onComplete }: Props) {
       return
     }
 
-    const delay = 800
+    const delay = ROUND_DELAYS[currentRound] ?? 160
     timeoutRef.current = setTimeout(() => {
       const isMole = Math.random() > 0.3
       const idx = Math.floor(Math.random() * GRID_SIZE)
