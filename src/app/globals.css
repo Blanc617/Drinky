@@ -1,26 +1,145 @@
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Pretendard:wght@300;400;500;600;700&display=swap');
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg: #f5f4f0;
+  --surface: #ffffff;
+  --surface2: #f0ede8;
+  --border: #e2ddd6;
+  --amber: #e8890c;
+  --amber-light: #fef3c7;
+  --amber-glow: rgba(232,137,12,0.2);
+  --text: #1a1714;
+  --text-muted: #7a7268;
+  --text-dim: #b5afa6;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: #f0ede8;
+  color: var(--text);
+  font-family: 'Pretendard', sans-serif;
+  min-height: 100dvh;
+  overscroll-behavior: none;
+}
+
+/* 모바일 앱 쉘 */
+.app-shell {
+  width: 100%;
+  max-width: 390px;
+  min-height: 100dvh;
+  margin: 0 auto;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+}
+
+/* 데스크탑에서 폰 프레임 효과 */
+@media (min-width: 768px) {
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #e8e4de;
+  }
+
+  .app-shell {
+    min-height: min(100dvh, 844px);
+    max-height: 844px;
+    border-radius: 40px;
+    overflow: hidden;
+    box-shadow:
+      0 0 0 8px #d4cfc8,
+      0 40px 80px rgba(0,0,0,0.2),
+      0 8px 24px rgba(0,0,0,0.12);
+  }
+}
+
+/* 카드 */
+.glass {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+}
+
+/* 앰버 버튼 */
+.btn-primary {
+  background: var(--amber);
+  color: #fff;
+  font-weight: 700;
+  padding: 16px 24px;
+  border-radius: 16px;
+  font-size: 16px;
+  letter-spacing: 0.01em;
+  transition: all 0.15s ease;
+  box-shadow: 0 4px 12px var(--amber-glow);
+  border: none;
+  cursor: pointer;
+  width: 100%;
+}
+
+.btn-primary:active {
+  transform: scale(0.97);
+  box-shadow: 0 2px 6px var(--amber-glow);
+}
+
+.btn-secondary {
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  padding: 16px 24px;
+  border-radius: 16px;
+  font-size: 15px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  width: 100%;
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+}
+
+.btn-secondary:active {
+  transform: scale(0.97);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 14px;
+  border: none;
+  cursor: pointer;
+  padding: 8px 16px;
+  transition: color 0.15s ease;
+}
+
+.btn-ghost:hover {
+  color: var(--text);
+}
+
+/* 진행 바 */
+.progress-bar {
+  height: 4px;
+  background: var(--border);
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: var(--amber);
+  border-radius: 99px;
+  transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 스크롤바 */
+::-webkit-scrollbar { width: 0; }
+
+/* 입력 필드 */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
 }
