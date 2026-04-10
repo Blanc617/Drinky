@@ -14,7 +14,7 @@ const COLORS = [
 ]
 
 const ROUNDS = 5
-const TIME_LIMITS = [1.5, 1.4, 1.2, 1.0, 1.0]
+const TIME_LIMITS = [1.3, 1.1, 0.9, 0.8, 0.6]
 
 function generateRound() {
   const wordIdx = Math.floor(Math.random() * COLORS.length)
