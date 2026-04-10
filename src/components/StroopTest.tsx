@@ -13,7 +13,8 @@ const COLORS = [
   { id: 3, label: '노랑', hex: '#eab308', glow: 'rgba(234,179,8,0.5)' },
 ]
 
-const ROUNDS = 3
+const ROUNDS = 5
+const TIME_LIMITS = [1.5, 1.4, 1.2, 1.0, 1.0]
 
 function generateRound() {
   const wordIdx = Math.floor(Math.random() * COLORS.length)
@@ -59,13 +60,13 @@ export default function StroopTest({ onComplete }: Props) {
     const next = generateRound()
     setCurrent(next)
     setTappedId(null)
-    setTimeLeft(3)
+    const timeLimit = TIME_LIMITS[roundNum] ?? 0.8
+    setTimeLeft(timeLimit)
     showTimeRef.current = Date.now()
     setPhase('playing')
 
-    // 1.5초 타임아웃
     if (timerRef.current) clearInterval(timerRef.current)
-    let t = 1.5
+    let t = timeLimit
     timerRef.current = setInterval(() => {
       t -= 0.1
       setTimeLeft(Math.max(0, t))
@@ -179,7 +180,8 @@ export default function StroopTest({ onComplete }: Props) {
   }
 
   const inkColor = COLORS[current.inkIdx]
-  const progressPct = (timeLeft / 3) * 100
+  const currentTimeLimit = TIME_LIMITS[round] ?? 0.8
+  const progressPct = (timeLeft / currentTimeLimit) * 100
 
   return (
     <div className="flex flex-col items-center gap-8 w-full">
@@ -192,7 +194,7 @@ export default function StroopTest({ onComplete }: Props) {
         <div style={{ height: 3, background: 'var(--surface2)', borderRadius: 99, overflow: 'hidden' }}>
           <div style={{
             height: '100%', borderRadius: 99,
-            background: timeLeft > 1.5 ? '#22c55e' : timeLeft > 0.8 ? '#f59e0b' : '#ef4444',
+            background: progressPct > 60 ? '#22c55e' : progressPct > 30 ? '#f59e0b' : '#ef4444',
             width: `${progressPct}%`,
             transition: 'width 0.1s linear, background 0.3s ease',
             boxShadow: `0 0 8px ${timeLeft > 1.5 ? 'rgba(34,197,94,0.5)' : 'rgba(239,68,68,0.5)'}`,
