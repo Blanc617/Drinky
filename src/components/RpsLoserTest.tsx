@@ -7,7 +7,7 @@ interface Props {
 }
 
 const ROUNDS = 4
-const TIME_LIMIT = 1.5 // seconds
+const TIME_LIMIT = 1 // seconds
 
 const GESTURES = [
   { id: 'rock',     emoji: '✊', label: '주먹' },
