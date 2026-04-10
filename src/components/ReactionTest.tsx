@@ -139,7 +139,7 @@ export default function ReactionTest({ onComplete }: Props) {
   if (phase === 'intro') {
     return (
       <div className="flex flex-col items-center gap-8 text-center w-full">
-        <div style={{ position: 'relative', top: '-140px', marginBottom: '-140px' }}>
+        <div>
           <div style={{ fontSize: 52, marginBottom: 4, lineHeight: 1 }}>🐹🔨</div>
           <div style={{
             fontSize: 36, fontWeight: 800, letterSpacing: '-0.01em',
@@ -153,7 +153,7 @@ export default function ReactionTest({ onComplete }: Props) {
             폭탄(💣)은 절대 탭하지 마세요
           </p>
         </div>
-        <div style={{ marginTop: 16 }} className="glass p-4 w-full flex flex-col gap-3">
+        <div className="glass p-4 w-full flex flex-col gap-3">
           <div className="flex items-center gap-3">
             <div style={{ width: 36, height: 36, borderRadius: 10, background: '#22c55e', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>🐹</div>
             <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>두더지 → 빠르게 탭</span>

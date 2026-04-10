@@ -64,7 +64,7 @@ export default function TestShell({
       </div>
 
       {/* 테스트 컨텐츠 */}
-      <div className="flex flex-col flex-1 items-center justify-center">
+      <div className="flex flex-col flex-1 items-center justify-start pt-4">
         {children}
       </div>
     </main>

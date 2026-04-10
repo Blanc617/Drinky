@@ -114,7 +114,7 @@ export default function CognitionTest({ onComplete }: Props) {
   if (phase === 'intro') {
     return (
       <div className="flex flex-col items-center gap-8 text-center w-full">
-        <div style={{ position: 'relative', top: '-140px', marginBottom: '-140px' }}>
+        <div>
           <div style={{ fontSize: 52, marginBottom: 4, lineHeight: 1 }}>🔴🔵🟢🟡</div>
           <div style={{
             fontSize: 36, fontWeight: 800, letterSpacing: '-0.01em',
@@ -128,7 +128,7 @@ export default function CognitionTest({ onComplete }: Props) {
             같은 순서로 탭하세요
           </p>
         </div>
-        <div style={{ marginTop: 16 }} className="glass p-4 w-full flex flex-col gap-2">
+        <div className="glass p-4 w-full flex flex-col gap-2">
           <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
             총 {MAX_ROUNDS}라운드 · 라운드마다 한 칸씩 늘어납니다
           </div>

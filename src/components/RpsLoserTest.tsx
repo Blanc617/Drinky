@@ -115,7 +115,7 @@ export default function RpsLoserTest({ onComplete }: Props) {
   if (phase === 'intro') {
     return (
       <div className="flex flex-col items-center gap-8 text-center w-full">
-        <div style={{ position: 'relative', top: '-140px', marginBottom: '-140px' }}>
+        <div>
           <div style={{ fontSize: 52, marginBottom: 4, lineHeight: 1 }}>✊✌️🖐️</div>
           <div style={{
             fontSize: 36, fontWeight: 800, letterSpacing: '-0.01em',
@@ -130,7 +130,7 @@ export default function RpsLoserTest({ onComplete }: Props) {
           </p>
         </div>
 
-        <div style={{ marginTop: 16 }} className="glass p-4 w-full flex flex-col gap-3">
+        <div className="glass p-4 w-full flex flex-col gap-3">
           {[
             { show: '✊ 주먹', arrow: '→', answer: '✌️ 가위' },
             { show: '✌️ 가위', arrow: '→', answer: '🖐️ 보' },

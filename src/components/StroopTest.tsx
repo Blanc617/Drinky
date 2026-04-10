@@ -115,7 +115,7 @@ export default function StroopTest({ onComplete }: Props) {
   if (phase === 'intro') {
     return (
       <div className="flex flex-col items-center gap-8 text-center w-full">
-        <div style={{ position: 'relative', top: '-140px', marginBottom: '-140px' }}>
+        <div>
           <div style={{ fontSize: 52, marginBottom: 4, lineHeight: 1 }}>🎨🧩</div>
           <div style={{
             fontSize: 36, fontWeight: 800, letterSpacing: '-0.01em',
@@ -131,7 +131,7 @@ export default function StroopTest({ onComplete }: Props) {
         </div>
 
         {/* 예시 */}
-        <div style={{ marginTop: 16 }} className="glass p-5 w-full flex flex-col items-center gap-4">
+        <div className="glass p-5 w-full flex flex-col items-center gap-4">
           <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>예시</div>
           <div style={{ fontSize: 42, fontWeight: 900, color: '#3b82f6', letterSpacing: '0.05em' }}>
             빨강
