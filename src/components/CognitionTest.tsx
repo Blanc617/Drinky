@@ -15,6 +15,11 @@ const COLORS = [
 
 const START_LENGTH = 4
 const MAX_ROUNDS = 3 // 최대 3라운드
+const ROUND_TIMING = [
+  { display: 500, off: 200, gap: 300 },
+  { display: 450, off: 180, gap: 270 },
+  { display: 400, off: 160, gap: 250 },
+]
 
 type Phase = 'intro' | 'showing' | 'input' | 'feedback' | 'result'
 
@@ -32,9 +37,10 @@ export default function CognitionTest({ onComplete }: Props) {
     return Array.from({ length }, () => Math.floor(Math.random() * 4))
   }
 
-  async function showSequence(seq: number[]) {
+  async function showSequence(seq: number[], roundNum: number) {
     setPhase('showing')
     setUserInput([])
+    const timing = ROUND_TIMING[roundNum] ?? ROUND_TIMING[ROUND_TIMING.length - 1]
 
     for (let i = 0; i < seq.length; i++) {
       await new Promise<void>((resolve) => {
@@ -43,11 +49,11 @@ export default function CognitionTest({ onComplete }: Props) {
           timeoutRef.current = setTimeout(() => {
             setActiveColor(null)
             resolve()
-          }, 500)
-        }, i === 0 ? 500 : 300)
+          }, timing.display)
+        }, i === 0 ? timing.display : timing.gap)
       })
       await new Promise<void>((resolve) => {
-        timeoutRef.current = setTimeout(resolve, 200)
+        timeoutRef.current = setTimeout(resolve, timing.off)
       })
     }
 
@@ -58,7 +64,7 @@ export default function CognitionTest({ onComplete }: Props) {
     const len = START_LENGTH + roundNum
     const seq = generateSequence(len)
     setSequence(seq)
-    showSequence(seq)
+    showSequence(seq, roundNum)
   }
 
   function handleColorTap(colorId: number) {
