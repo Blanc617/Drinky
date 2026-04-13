@@ -186,6 +186,15 @@ export default function BalanceGameBattle({ onComplete, roomCode, userId, player
         <div style={{ height: '100%', background: 'var(--amber)', borderRadius: 99, width: `${(questionIdx / questions.length) * 100}%`, transition: 'width 0.4s ease' }} />
       </div>
 
+      {/* 안내 문구 */}
+      <div style={{
+        fontSize: 13, fontWeight: 700, color: 'var(--amber)',
+        background: 'rgba(232,137,12,0.1)', border: '1px solid rgba(232,137,12,0.3)',
+        borderRadius: 99, padding: '5px 14px', letterSpacing: '0.02em',
+      }}>
+        둘 다 싫지만 하나를 고른다면?
+      </div>
+
       {/* 이모지 */}
       <div style={{ fontSize: 40, animation: 'popIn 0.4s cubic-bezier(0.34,1.56,0.64,1)' }}>{q.emoji}</div>
 

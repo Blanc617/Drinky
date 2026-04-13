@@ -377,12 +377,33 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
           </div>
         </div>
 
-        <div className="glass p-4 w-full flex flex-col gap-2" style={{ textAlign: 'left' }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.06em' }}>진행 순서</div>
-          <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.8 }}>
-            1. 플레이어 1번부터 순서대로 설명<br />
-            2. 라이어는 모르는 척 자연스럽게 설명<br />
-            3. 토론 후 라이어라고 의심되는 사람에게 투표
+        <div className="glass p-4 w-full flex flex-col gap-3" style={{ textAlign: 'left' }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.06em' }}>발언 순서</div>
+          <div className="flex flex-col gap-2">
+            {players.map((p, i) => {
+              const isMe = p.userId === userId
+              return (
+                <div key={p.userId} style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '8px 10px', borderRadius: 10,
+                  background: isMe ? 'rgba(232,137,12,0.1)' : 'var(--surface2)',
+                  border: isMe ? '1px solid var(--amber)' : '1px solid transparent',
+                }}>
+                  <span style={{
+                    fontFamily: "'Bebas Neue'", fontSize: 18, lineHeight: 1,
+                    color: isMe ? 'var(--amber)' : 'var(--text-dim)',
+                    minWidth: 24, textAlign: 'center',
+                  }}>{i + 1}</span>
+                  <span style={{ fontSize: 14, fontWeight: isMe ? 700 : 500, color: isMe ? 'var(--text)' : 'var(--text-muted)', flex: 1 }}>
+                    {p.name}
+                  </span>
+                  {isMe && <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--amber)' }}>나</span>}
+                </div>
+              )
+            })}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 2 }}>
+            라이어는 모르는 척 자연스럽게 설명하세요
           </div>
         </div>
 

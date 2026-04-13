@@ -47,7 +47,7 @@ const GAMES: { key: GameKey; emoji: string; label: string; tag: '기존' | '신�
   { key: 'threesixnine', emoji: '3️⃣', label: '369 게임',       tag: '술게임', minPlayers: 3, players: '3명+' },
   { key: 'liar',         emoji: '🤥', label: '라이어게임',     tag: '술게임', minPlayers: 3, players: '3명+' },
   { key: 'balancegame',  emoji: '⚖️', label: '밸런스게임',     tag: '술게임', minPlayers: 3, players: '3명+' },
-  { key: 'mafia',        emoji: '🕵️', label: '마피아게임',     tag: '술게임', minPlayers: 5, players: '5명+' },
+  { key: 'mafia',        emoji: '🕵️', label: '마피아게임',     tag: '술게임', minPlayers: 3, players: '3명+' },
 ]
 
 export default function TestNewClient() {

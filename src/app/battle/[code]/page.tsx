@@ -10,7 +10,7 @@ import ThreeSixNineBattle from '@/components/ThreeSixNineBattle'
 import ChoSeongBattle from '@/components/ChoSeongBattle'
 import LiarGameBattle from '@/components/LiarGameBattle'
 import BalanceGameBattle from '@/components/BalanceGameBattle'
-import MafiaGame from '@/components/MafiaGame'
+import MafiaGameBattle from '@/components/MafiaGameBattle'
 
 type GameKey = 'nunchi' | 'threesixnine' | 'choseong' | 'liar' | 'balancegame' | 'mafia'
 type Phase = 'lobby' | 'round_select' | 'countdown' | 'playing' | 'results'
@@ -597,7 +597,7 @@ export default function BattleRoomPage() {
           )}
           {selectedGame === 'liar'        && <LiarGameBattle    onComplete={handleGameComplete} roomCode={code} userId={userId} myName={myName} players={players} isHost={amHost} />}
           {selectedGame === 'balancegame' && <BalanceGameBattle onComplete={handleGameComplete} roomCode={code} userId={userId} players={players} isHost={amHost} rounds={selectedRounds} />}
-          {selectedGame === 'mafia'       && <MafiaGame         onComplete={handleGameComplete} />}
+          {selectedGame === 'mafia'       && <MafiaGameBattle    onComplete={handleGameComplete} roomCode={code} userId={userId} myName={myName} players={players} isHost={amHost} />}
         </div>
       </main>
     )

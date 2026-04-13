@@ -271,6 +271,13 @@ export default function BalanceGame({ onComplete }: Props) {
 
       {/* 질문 */}
       <div style={{ animation: 'fadeUp 0.3s ease', textAlign: 'center' }}>
+        <div style={{
+          display: 'inline-block', fontSize: 13, fontWeight: 700, color: 'var(--amber)',
+          background: 'rgba(232,137,12,0.1)', border: '1px solid rgba(232,137,12,0.3)',
+          borderRadius: 99, padding: '5px 14px', letterSpacing: '0.02em', marginBottom: 12,
+        }}>
+          둘 다 싫지만 하나를 고른다면?
+        </div>
         <div style={{ fontSize: 40, marginBottom: 8 }}>{q.emoji}</div>
         <div style={{ fontSize: 14, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 16 }}>
           플레이어 {currentVoter + 1}번 — 하나를 선택하세요
