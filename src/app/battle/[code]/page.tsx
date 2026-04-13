@@ -6,15 +6,13 @@ import { createClient } from '@/lib/supabase/client'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 
 import NunchiGameBattle from '@/components/NunchiGameBattle'
-import ThreeSixNineGame from '@/components/ThreeSixNineGame'
+import ThreeSixNineBattle from '@/components/ThreeSixNineBattle'
 import ChoSeongBattle from '@/components/ChoSeongBattle'
-import TimingChallenge from '@/components/TimingChallenge'
-import LiarGame from '@/components/LiarGame'
-import BalanceGame from '@/components/BalanceGame'
-import MindMeldGame from '@/components/MindMeldGame'
+import LiarGameBattle from '@/components/LiarGameBattle'
+import BalanceGameBattle from '@/components/BalanceGameBattle'
 import MafiaGame from '@/components/MafiaGame'
 
-type GameKey = 'nunchi' | 'threesixnine' | 'choseong' | 'timing' | 'liar' | 'balancegame' | 'mindmeld' | 'mafia'
+type GameKey = 'nunchi' | 'threesixnine' | 'choseong' | 'liar' | 'balancegame' | 'mafia'
 type Phase = 'lobby' | 'round_select' | 'countdown' | 'playing' | 'results'
 
 interface Player { userId: string; name: string; isHost: boolean }
@@ -23,10 +21,8 @@ const GAMES: { key: GameKey; emoji: string; label: string }[] = [
   { key: 'nunchi',       emoji: '👀', label: '눈치게임' },
   { key: 'threesixnine', emoji: '3️⃣', label: '369 게임' },
   { key: 'choseong',     emoji: '🔤', label: '초성게임' },
-  { key: 'timing',       emoji: '⚡', label: '타이밍 챌린지' },
   { key: 'liar',         emoji: '🤥', label: '라이어게임' },
   { key: 'balancegame',  emoji: '⚖️', label: '밸런스게임' },
-  { key: 'mindmeld',     emoji: '🧠', label: '이심전심' },
   { key: 'mafia',        emoji: '🕵️', label: '마피아게임' },
 ]
 
@@ -48,10 +44,15 @@ export default function BattleRoomPage() {
   const [players, setPlayers] = useState<Player[]>([])
   const [selectedGame, setSelectedGame] = useState<GameKey>('nunchi')
   const [selectedRounds, setSelectedRounds] = useState(5)
+  const [playerOrder, setPlayerOrder] = useState<string[]>([])
   const [countdown, setCountdown] = useState(3)
   const [doneMap, setDoneMap] = useState<Record<string, number>>({})
   const [myScore, setMyScore] = useState<number | null>(null)
   const [resultsCountdown, setResultsCountdown] = useState(5)
+  const [channelStatus, setChannelStatus] = useState<string>('connecting')
+  const [orderDragIdx, setOrderDragIdx] = useState<number | null>(null)
+  const [orderDragOver, setOrderDragOver] = useState<number | null>(null)
+  const orderListRef = useRef<HTMLDivElement>(null)
 
   // Stable refs (avoid stale closures in channel callbacks)
   const channelRef      = useRef<RealtimeChannel | null>(null)
@@ -60,6 +61,7 @@ export default function BattleRoomPage() {
   const startedCountRef = useRef(0)
   const selectedGameRef = useRef<GameKey>('nunchi')
   const selectedRoundsRef = useRef(5)
+  const playerOrderRef    = useRef<string[]>([])
   const autoFinishRef       = useRef<ReturnType<typeof setTimeout> | null>(null)
   const cdIntervalRef       = useRef<ReturnType<typeof setInterval> | null>(null)
   const resultsCdIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -129,6 +131,7 @@ export default function BattleRoomPage() {
   useEffect(() => {
     if (!userId || !myName) return
 
+    setChannelStatus('connecting')
     const supabase = createClient()
     const channel = supabase.channel(`battle:${code}`, {
       config: {
@@ -138,17 +141,23 @@ export default function BattleRoomPage() {
     })
     channelRef.current = channel
 
-    channel
-      .on('presence', { event: 'sync' }, () => {
-        const state = channel.presenceState<{ name: string; isHost: boolean }>()
-        const list: Player[] = Object.entries(state).map(([uid, arr]) => ({
+    function syncPlayers() {
+      const state = channel.presenceState<{ name: string; isHost: boolean }>()
+      const list: Player[] = Object.entries(state)
+        .filter(([, arr]) => arr.length > 0)
+        .map(([uid, arr]) => ({
           userId: uid,
           name: arr[0].name,
           isHost: arr[0].isHost,
         }))
-        playersRef.current = list
-        setPlayers([...list])
-      })
+      playersRef.current = list
+      setPlayers([...list])
+    }
+
+    channel
+      .on('presence', { event: 'sync' }, syncPlayers)
+      .on('presence', { event: 'join' }, syncPlayers)
+      .on('presence', { event: 'leave' }, syncPlayers)
       .on('broadcast', { event: 'game_select' }, ({ payload }) => {
         selectedGameRef.current = payload.gameKey
         setSelectedGame(payload.gameKey)
@@ -156,6 +165,9 @@ export default function BattleRoomPage() {
       .on('broadcast', { event: 'round_select' }, ({ payload }) => {
         selectedGameRef.current = payload.gameKey
         setSelectedGame(payload.gameKey)
+        const order = playersRef.current.map(p => p.userId)
+        playerOrderRef.current = order
+        setPlayerOrder(order)
         setPhase('round_select')
       })
       .on('broadcast', { event: 'cancel_round_select' }, () => {
@@ -172,6 +184,16 @@ export default function BattleRoomPage() {
         const rounds: number = payload.rounds ?? 5
         selectedRoundsRef.current = rounds
         setSelectedRounds(rounds)
+        const order: string[] = payload.playerOrder ?? playersRef.current.map((p: Player) => p.userId)
+        playerOrderRef.current = order
+        setPlayerOrder(order)
+
+        // 라이어 게임은 자체 카운트다운이 있으므로 바로 playing으로
+        if (payload.gameKey === 'liar') {
+          setPhase('playing')
+          autoFinishRef.current = setTimeout(() => setPhase('results'), 600_000)
+          return
+        }
 
         // 절대 시각 기준 카운트다운 — 모든 클라이언트가 동일 시점에 게임 시작
         const startAt: number = payload.startAt ?? Date.now() + 4000
@@ -203,9 +225,18 @@ export default function BattleRoomPage() {
         setMyScore(null)
         setPhase('lobby')
       })
-      .subscribe(async (status) => {
+      .subscribe(async (status, err) => {
+        console.log('[Battle] channel status:', status, err ?? '')
         if (status === 'SUBSCRIBED') {
+          setChannelStatus('connected')
           await channel.track({ name: myName, isHost: amHost })
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('[Battle] channel error:', err)
+          setChannelStatus('error')
+        } else if (status === 'TIMED_OUT') {
+          setChannelStatus('timeout')
+        } else if (status === 'CLOSED') {
+          setChannelStatus('closed')
         }
       })
 
@@ -213,7 +244,7 @@ export default function BattleRoomPage() {
       if (autoFinishRef.current) clearTimeout(autoFinishRef.current)
       if (cdIntervalRef.current) clearInterval(cdIntervalRef.current)
       if (resultsCdIntervalRef.current) clearInterval(resultsCdIntervalRef.current)
-      channel.unsubscribe()
+      supabase.removeChannel(channel)
     }
   }, [userId, myName, amHost, code, checkAllDone])
 
@@ -235,7 +266,7 @@ export default function BattleRoomPage() {
     selectedRoundsRef.current = n
     setSelectedRounds(n)
     const startAt = Date.now() + 4000
-    channelRef.current?.send({ type: 'broadcast', event: 'start', payload: { gameKey: selectedGame, startAt, rounds: n } })
+    channelRef.current?.send({ type: 'broadcast', event: 'start', payload: { gameKey: selectedGame, startAt, rounds: n, playerOrder: playerOrderRef.current } })
   }
 
   function handleGameComplete(score: number) {
@@ -363,6 +394,92 @@ export default function BattleRoomPage() {
             <div style={{ textAlign: 'center', fontSize: 13, color: 'var(--text-dim)' }}>
               선택: <span style={{ color: 'var(--amber)', fontWeight: 700 }}>{selectedRounds}라운드</span>
             </div>
+
+            {/* 플레이어 순서 (턴제 게임만) */}
+            {(['threesixnine', 'choseong'] as GameKey[]).includes(selectedGame) && playerOrder.length > 1 && (
+              <div className="flex flex-col gap-2">
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.06em' }}>플레이어 순서</span>
+                  <button
+                    onClick={() => {
+                      const shuffled = [...playerOrder].sort(() => Math.random() - 0.5)
+                      playerOrderRef.current = shuffled
+                      setPlayerOrder(shuffled)
+                    }}
+                    style={{ fontSize: 12, padding: '4px 10px', borderRadius: 8, background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--text-muted)' }}
+                  >🔀 랜덤</button>
+                </div>
+                <div ref={orderListRef} className="flex flex-col gap-2">
+                {playerOrder.map((uid, i) => {
+                  const player = players.find(p => p.userId === uid)
+                  if (!player) return null
+                  const isMe = uid === userId
+                  const isDragging = orderDragIdx === i
+                  const isTarget = orderDragOver === i && orderDragIdx !== null && orderDragIdx !== i
+                  return (
+                    <div
+                      key={uid}
+                      data-order-i={i}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        opacity: isDragging ? 0.4 : 1,
+                        transition: 'opacity 0.15s ease, transform 0.1s ease',
+                        transform: isTarget ? 'translateY(-3px)' : 'none',
+                      }}
+                    >
+                      {/* 드래그 핸들 */}
+                      <div
+                        onPointerDown={(e) => {
+                          e.currentTarget.setPointerCapture(e.pointerId)
+                          setOrderDragIdx(i)
+                          setOrderDragOver(i)
+                        }}
+                        onPointerMove={(e) => {
+                          if (orderDragIdx === null) return
+                          const container = orderListRef.current
+                          if (!container) return
+                          const items = container.querySelectorAll('[data-order-i]')
+                          for (const item of Array.from(items)) {
+                            const rect = (item as HTMLElement).getBoundingClientRect()
+                            if (e.clientY >= rect.top && e.clientY <= rect.bottom) {
+                              setOrderDragOver(parseInt((item as HTMLElement).dataset.orderI!))
+                              break
+                            }
+                          }
+                        }}
+                        onPointerUp={() => {
+                          if (orderDragIdx !== null && orderDragOver !== null && orderDragIdx !== orderDragOver) {
+                            const next = [...playerOrder]
+                            const [moved] = next.splice(orderDragIdx, 1)
+                            next.splice(orderDragOver, 0, moved)
+                            playerOrderRef.current = next
+                            setPlayerOrder(next)
+                          }
+                          setOrderDragIdx(null)
+                          setOrderDragOver(null)
+                        }}
+                        onPointerCancel={() => { setOrderDragIdx(null); setOrderDragOver(null) }}
+                        style={{ cursor: 'grab', touchAction: 'none', padding: '4px 6px', color: 'var(--text-dim)', fontSize: 16, userSelect: 'none', flexShrink: 0 }}
+                      >
+                        ☰
+                      </div>
+                      <span style={{ fontFamily: "'Bebas Neue'", fontSize: 20, color: 'var(--amber)', width: 20, textAlign: 'center', flexShrink: 0 }}>{i + 1}</span>
+                      <div style={{
+                        flex: 1, padding: '9px 12px', borderRadius: 10,
+                        background: 'var(--surface)', fontSize: 14, fontWeight: isMe ? 700 : 400,
+                        border: isTarget ? '1.5px dashed var(--amber)' : isMe ? '1.5px solid var(--amber)' : '1px solid var(--border)',
+                        color: 'var(--text)',
+                        transition: 'border 0.1s ease',
+                      }}>
+                        {player.name}{isMe ? ' (나)' : ''}
+                      </div>
+                    </div>
+                  )
+                })}
+                </div>
+              </div>
+            )}
+
             <button className="btn-primary" onClick={() => handleConfirmRounds(selectedRounds)}>
               확인 →
             </button>
@@ -467,7 +584,7 @@ export default function BattleRoomPage() {
         </div>
         <div className="flex flex-col flex-1 items-center justify-start pt-2">
           {selectedGame === 'nunchi'       && <NunchiGameBattle  onComplete={handleGameComplete} roomCode={code} userId={userId} myName={myName} players={players} isHost={amHost} rounds={selectedRounds} />}
-          {selectedGame === 'threesixnine' && <ThreeSixNineGame  onComplete={handleGameComplete} autoStart rounds={selectedRounds} />}
+          {selectedGame === 'threesixnine' && <ThreeSixNineBattle onComplete={handleGameComplete} roomCode={code} userId={userId} myName={myName} players={players} isHost={amHost} rounds={selectedRounds} playerOrder={playerOrder.length > 0 ? playerOrder : undefined} />}
           {selectedGame === 'choseong'     && (
             <ChoSeongBattle
               onComplete={handleGameComplete}
@@ -478,10 +595,8 @@ export default function BattleRoomPage() {
               rounds={selectedRounds}
             />
           )}
-          {selectedGame === 'timing'      && <TimingChallenge   onComplete={handleGameComplete} />}
-          {selectedGame === 'liar'        && <LiarGame          onComplete={handleGameComplete} />}
-          {selectedGame === 'balancegame' && <BalanceGame       onComplete={handleGameComplete} />}
-          {selectedGame === 'mindmeld'    && <MindMeldGame      onComplete={handleGameComplete} />}
+          {selectedGame === 'liar'        && <LiarGameBattle    onComplete={handleGameComplete} roomCode={code} userId={userId} myName={myName} players={players} isHost={amHost} />}
+          {selectedGame === 'balancegame' && <BalanceGameBattle onComplete={handleGameComplete} roomCode={code} userId={userId} players={players} isHost={amHost} rounds={selectedRounds} />}
           {selectedGame === 'mafia'       && <MafiaGame         onComplete={handleGameComplete} />}
         </div>
       </main>
@@ -585,8 +700,12 @@ export default function BattleRoomPage() {
         </div>
         <div className="flex flex-col gap-2">
           {players.length === 0 && (
-            <div style={{ fontSize: 13, color: 'var(--text-dim)', textAlign: 'center', padding: '12px 0' }}>
-              연결 중...
+            <div style={{ fontSize: 13, color: channelStatus === 'error' || channelStatus === 'timeout' ? '#ef4444' : 'var(--text-dim)', textAlign: 'center', padding: '12px 0' }}>
+              {channelStatus === 'connecting' && '연결 중...'}
+              {channelStatus === 'connected' && '접속 완료 — 플레이어 동기화 중...'}
+              {channelStatus === 'error' && '연결 오류 — 새로고침 해주세요'}
+              {channelStatus === 'timeout' && '연결 시간 초과 — 새로고침 해주세요'}
+              {channelStatus === 'closed' && '연결이 끊어졌습니다'}
             </div>
           )}
           {players.map(p => (

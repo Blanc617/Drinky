@@ -6,7 +6,7 @@ interface Props { onComplete: (score: number) => void }
 
 interface Question { a: string; b: string; emoji: string }
 
-const ALL_QUESTIONS: Question[] = [
+export const ALL_QUESTIONS: Question[] = [
   // ── 공감 & 현실 ──
   { emoji: '📱', a: '술 마시고 새벽에 전 연인한테 보낸 카톡을 다음 날 아무도 언급 안 함', b: '모두가 캡처해서 단톡방에 공유함' },
   { emoji: '😬', a: '중요한 발표 직전 바지 지퍼 열린 걸 발표 끝나고 혼자 알게 됨', b: '발표 도중 슬라이드 전체가 날아가서 처음부터 다시 함' },
@@ -235,7 +235,7 @@ export default function BalanceGame({ onComplete }: Props) {
       <div className="glass p-4 w-full flex flex-col gap-3">
         <div style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 600 }}>인원 수</div>
         <div style={{ display: 'flex', justifyContent: 'center', gap: 8, flexWrap: 'wrap' }}>
-          {[3, 4, 5, 6, 7, 8].map(n => (
+          {[2, 3, 4, 5, 6, 7, 8].map(n => (
             <button key={n} onClick={() => setPlayerCount(n)} style={{
               width: 44, height: 44, borderRadius: 12, fontSize: 16, fontWeight: 600, cursor: 'pointer',
               border: playerCount === n ? '2px solid var(--amber)' : '1px solid var(--border)',

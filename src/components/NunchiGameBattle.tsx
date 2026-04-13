@@ -22,7 +22,7 @@ interface ClaimEntry {
   name: string
 }
 
-type Phase = 'intro' | 'countdown' | 'playing' | 'showing' | 'result'
+type Phase = 'intro' | 'playing' | 'showing' | 'result'
 
 export default function NunchiGameBattle({ onComplete, roomCode, userId, myName, players, isHost, rounds }: Props) {
   const playerCount = players.length
@@ -36,8 +36,6 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
   const [myChoice, setMyChoice] = useState<number | null>(null)
   const [myPoints, setMyPoints] = useState(0)
   const [lastResult, setLastResult] = useState<'success' | 'collision' | 'missed' | null>(null)
-
-  const [cdCount, setCdCount] = useState(3)
 
   const phaseRef        = useRef<Phase>('intro')
   const roundRef        = useRef(0)
@@ -138,14 +136,7 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
         const { rounds: r } = payload as { rounds: number }
         totalRoundsRef.current = r
         setTotalRounds(r)
-        setPhaseSync('countdown')
-        let c = 3
-        setCdCount(c)
-        const cdTimer = setInterval(() => {
-          c--
-          setCdCount(c)
-          if (c <= 0) { clearInterval(cdTimer); startRound(0) }
-        }, 1000)
+        startRound(0)
       })
       .on('broadcast', { event: 'nunchi_claim' }, ({ payload }) => {
         const { round: r, slotIdx, userId: uid, name } = payload as {
@@ -183,24 +174,6 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
     return (
       <div className="flex flex-col items-center justify-center gap-4 text-center w-full" style={{ minHeight: 200 }}>
         <div style={{ fontSize: 14, color: 'var(--text-muted)' }}>게임 준비 중...</div>
-      </div>
-    )
-  }
-
-  // ── countdown ──
-  if (phase === 'countdown') {
-    return (
-      <div className="flex flex-col items-center gap-4 text-center w-full">
-        <style>{`@keyframes popIn{from{transform:scale(0.5);opacity:0}to{transform:scale(1);opacity:1}}`}</style>
-        <div style={{ fontSize: 14, color: 'var(--text-muted)' }}>준비하세요</div>
-        <div style={{
-          fontFamily: "'Bebas Neue'", fontSize: 120, color: 'var(--amber)', lineHeight: 1,
-          textShadow: '0 0 40px rgba(245,158,11,0.6)',
-          animation: 'popIn 0.3s cubic-bezier(0.34,1.56,0.64,1)',
-        }}>{cdCount}</div>
-        <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>
-          {totalRounds}라운드 · {slotCount}개 슬롯
-        </div>
       </div>
     )
   }

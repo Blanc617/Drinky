@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react'
 
-interface Props { onComplete: (score: number) => void }
+interface Props { onComplete: (score: number) => void; autoStart?: boolean }
 
 const ROUNDS = 6
 const MIN_DELAY = 3000
@@ -13,7 +13,7 @@ const SIGNAL_TIMEOUT = 2000
 type RoundResult = 'success' | 'early' | 'false_alarm' | 'timeout'
 type Phase = 'intro' | 'countdown' | 'waiting' | 'fake' | 'signal' | 'feedback' | 'result'
 
-export default function TimingChallenge({ onComplete }: Props) {
+export default function TimingChallenge({ onComplete, autoStart }: Props) {
   const [phase, setPhase] = useState<Phase>('intro')
   const [countdown, setCountdown] = useState(3)
   const [round, setRound] = useState(0)
@@ -148,6 +148,21 @@ export default function TimingChallenge({ onComplete }: Props) {
   }
 
   useEffect(() => () => clearTimer(), [])
+
+  useEffect(() => {
+    if (!autoStart) return
+    const fakeCount = 2 + Math.floor(Math.random() * 5)
+    const allRounds = Array.from({ length: ROUNDS }, (_, i) => i)
+    for (let i = allRounds.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [allRounds[i], allRounds[j]] = [allRounds[j], allRounds[i]]
+    }
+    fakeRoundsRef.current = new Set(allRounds.slice(0, fakeCount))
+    successRef.current = 0
+    rtListRef.current = []
+    setSuccessCount(0)
+    startRound(0)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── intro ──
   if (phase === 'intro') return (

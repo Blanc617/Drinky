@@ -106,7 +106,14 @@ export default function ThreeSixNineGame({ onComplete, autoStart, rounds }: Prop
   }
 
   useEffect(() => () => { if (timerRef.current) clearInterval(timerRef.current) }, [])
-  useEffect(() => { if (autoStart) startCountdown() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (autoStart) {
+      correctRef.current = 0
+      timesRef.current = []
+      setCorrectCount(0)
+      startRound(0)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── intro ──
   if (phase === 'intro') {
