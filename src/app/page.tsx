@@ -348,11 +348,8 @@ export default function Home() {
                   transition: 'opacity 0.15s ease',
                 }}
               >
-                <span style={{ fontSize: 32, flexShrink: 0 }}>🧪</span>
-                <div>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: '#fff', letterSpacing: '-0.01em' }}>혼자 측정하기</div>
-                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', marginTop: 2 }}>인지능력·반응속도로 취함 단계 측정</div>
-                </div>
+                <span style={{ fontSize: 28, flexShrink: 0 }}>🧪</span>
+                <span style={{ fontSize: 16, fontWeight: 800, color: '#fff', letterSpacing: '-0.01em' }}>혼자 측정하기</span>
                 <span style={{ marginLeft: 'auto', color: 'rgba(255,255,255,0.6)', fontSize: 20 }}>→</span>
               </button>
 
@@ -369,11 +366,8 @@ export default function Home() {
                   transition: 'opacity 0.15s ease',
                 }}
               >
-                <span style={{ fontSize: 32, flexShrink: 0 }}>🎮</span>
-                <div>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.01em' }}>대전 게임</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>여럿이 함께 즐기는 술자리 게임</div>
-                </div>
+                <span style={{ fontSize: 28, flexShrink: 0 }}>🎮</span>
+                <span style={{ fontSize: 16, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.01em' }}>대전 게임</span>
                 <span style={{ marginLeft: 'auto', color: 'var(--text-dim)', fontSize: 20 }}>→</span>
               </button>
             </div>
