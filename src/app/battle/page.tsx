@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 function generateCode(): string {
-  return Array.from(crypto.getRandomValues(new Uint8Array(5)))
+  return Array.from(crypto.getRandomValues(new Uint8Array(4)))
     .map(b => b % 10)
     .join('')
 }
@@ -26,7 +26,7 @@ export default function BattleLobbyPage() {
   function handleJoin() {
     if (!name.trim()) return
     const code = joinCode.trim()
-    if (code.length < 5) return
+    if (code.length < 4) return
     sessionStorage.setItem('battle_name', name.trim())
     router.push(`/battle/${code}`)
   }
@@ -73,8 +73,8 @@ export default function BattleLobbyPage() {
             <input
               value={joinCode}
               onChange={e => setJoinCode(e.target.value.replace(/\D/g, ''))}
-              placeholder="숫자 5자리 입력"
-              maxLength={5}
+              placeholder="숫자 4자리 입력"
+              maxLength={4}
               style={{ ...inputStyle, letterSpacing: '0.2em' }}
             />
           </div>
@@ -95,7 +95,7 @@ export default function BattleLobbyPage() {
           <button
             className="btn-primary"
             onClick={handleJoin}
-            disabled={!name.trim() || joinCode.trim().length < 5}
+            disabled={!name.trim() || joinCode.trim().length < 4}
           >
             입장하기
           </button>
