@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 
 function generateCode(): string {
@@ -14,6 +14,13 @@ export default function BattleLobbyPage() {
   const [name, setName] = useState('')
   const [joinCode, setJoinCode] = useState('')
   const [mode, setMode] = useState<'select' | 'join'>('select')
+  const codeInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (mode === 'join') {
+      codeInputRef.current?.focus()
+    }
+  }, [mode])
 
   function handleCreate() {
     if (!name.trim()) return
@@ -71,12 +78,13 @@ export default function BattleLobbyPage() {
           <div>
             <label style={labelStyle}>방 코드</label>
             <input
+              ref={codeInputRef}
               value={joinCode}
               onChange={e => setJoinCode(e.target.value.replace(/\D/g, ''))}
+              onKeyDown={e => e.key === 'Enter' && joinCode.length >= 4 && handleJoin()}
               placeholder="숫자 4자리 입력"
               maxLength={4}
               inputMode="numeric"
-              autoFocus
               style={{ ...inputStyle, letterSpacing: '0.2em' }}
             />
           </div>
