@@ -40,6 +40,8 @@ export default function BattleRoomPage() {
   const [myName, setMyName] = useState('')
   const [amHost, setAmHost] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const [needsName, setNeedsName] = useState(false)
+  const [nameInput, setNameInput] = useState('')
 
   // Room state
   const [phase, setPhase] = useState<Phase>('lobby')
@@ -64,20 +66,27 @@ export default function BattleRoomPage() {
   const userIdRef           = useRef('')
   const amHostRef           = useRef(false)
 
-  // ── Mount: load identity from Supabase auth ──
+  // ── Mount: read identity from sessionStorage ──
   useEffect(() => {
-    const supabase = createClient()
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      const id = user?.id ?? crypto.randomUUID()
-      const name = user?.user_metadata?.full_name ?? user?.email?.split('@')[0] ?? '익명'
-      userIdRef.current = id
-      setUserId(id)
+    let id = sessionStorage.getItem('battle_userId')
+    if (!id) {
+      id = crypto.randomUUID()
+      sessionStorage.setItem('battle_userId', id)
+    }
+    userIdRef.current = id
+    setUserId(id)
+
+    const name = sessionStorage.getItem('battle_name')
+    if (name) {
       setMyName(name)
-      const isHost = sessionStorage.getItem(`battle_host_${code}`) === 'true'
-      amHostRef.current = isHost
-      setAmHost(isHost)
-      setMounted(true)
-    })
+    } else {
+      setNeedsName(true)
+    }
+
+    const isHost = sessionStorage.getItem(`battle_host_${code}`) === 'true'
+    amHostRef.current = isHost
+    setAmHost(isHost)
+    setMounted(true)
   }, [code])
 
   // ── All-done check ──

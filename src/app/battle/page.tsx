@@ -1,8 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
 
 function generateCode(): string {
   return Array.from(crypto.getRandomValues(new Uint8Array(5)))
@@ -12,27 +11,23 @@ function generateCode(): string {
 
 export default function BattleLobbyPage() {
   const router = useRouter()
+  const [name, setName] = useState('')
   const [joinCode, setJoinCode] = useState('')
   const [mode, setMode] = useState<'select' | 'join'>('select')
-  const [userName, setUserName] = useState<string | null>(null)
-
-  useEffect(() => {
-    const supabase = createClient()
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      const name = user?.user_metadata?.full_name ?? user?.email?.split('@')[0] ?? '익명'
-      setUserName(name)
-    })
-  }, [])
 
   function handleCreate() {
+    if (!name.trim()) return
     const code = generateCode()
+    sessionStorage.setItem('battle_name', name.trim())
     sessionStorage.setItem(`battle_host_${code}`, 'true')
     router.push(`/battle/${code}`)
   }
 
   function handleJoin() {
-    const code = joinCode.trim().toUpperCase()
+    if (!name.trim()) return
+    const code = joinCode.trim()
     if (code.length < 5) return
+    sessionStorage.setItem('battle_name', name.trim())
     router.push(`/battle/${code}`)
   }
 
@@ -41,6 +36,7 @@ export default function BattleLobbyPage() {
     background: 'var(--surface2)', border: '1px solid var(--border)',
     borderRadius: 12, color: 'var(--text)', fontSize: 15, outline: 'none',
   }
+  const labelStyle = { fontSize: 12, color: 'var(--text-dim)', fontWeight: 600 as const }
 
   return (
     <main className="flex flex-col flex-1 px-6 pt-12 pb-8 gap-8 items-center w-full">
@@ -58,33 +54,39 @@ export default function BattleLobbyPage() {
         <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>
           친구들과 같은 게임을 동시에!
         </div>
-        {userName && (
-          <div style={{ fontSize: 13, color: 'var(--amber)', marginTop: 8, fontWeight: 600 }}>
-            {userName}으로 참가합니다
+      </div>
+
+      <div className="glass p-5 w-full flex flex-col gap-4">
+        <div>
+          <label style={labelStyle}>닉네임</label>
+          <input
+            value={name}
+            onChange={e => setName(e.target.value)}
+            placeholder="이름을 입력하세요"
+            maxLength={10}
+            style={inputStyle}
+          />
+        </div>
+        {mode === 'join' && (
+          <div>
+            <label style={labelStyle}>방 코드</label>
+            <input
+              value={joinCode}
+              onChange={e => setJoinCode(e.target.value.replace(/\D/g, ''))}
+              placeholder="숫자 5자리 입력"
+              maxLength={5}
+              style={{ ...inputStyle, letterSpacing: '0.2em' }}
+            />
           </div>
         )}
       </div>
 
-      {mode === 'join' && (
-        <div className="glass p-5 w-full">
-          <label style={{ fontSize: 12, color: 'var(--text-dim)', fontWeight: 600 as const }}>방 코드</label>
-          <input
-            value={joinCode}
-            onChange={e => setJoinCode(e.target.value.replace(/\D/g, ''))}
-            placeholder="숫자 5자리 입력"
-            maxLength={5}
-            autoFocus
-            style={{ ...inputStyle, letterSpacing: '0.2em', textTransform: 'uppercase' as const }}
-          />
-        </div>
-      )}
-
       {mode === 'select' ? (
         <div className="flex flex-col gap-3 w-full">
-          <button className="btn-primary" onClick={handleCreate}>
+          <button className="btn-primary" onClick={handleCreate} disabled={!name.trim()}>
             방 만들기
           </button>
-          <button className="btn-secondary" onClick={() => setMode('join')}>
+          <button className="btn-secondary" onClick={() => setMode('join')} disabled={!name.trim()}>
             코드로 입장
           </button>
         </div>
@@ -93,7 +95,7 @@ export default function BattleLobbyPage() {
           <button
             className="btn-primary"
             onClick={handleJoin}
-            disabled={joinCode.trim().length < 5}
+            disabled={!name.trim() || joinCode.trim().length < 5}
           >
             입장하기
           </button>
