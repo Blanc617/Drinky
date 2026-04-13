@@ -75,6 +75,8 @@ export default function BattleLobbyPage() {
               onChange={e => setJoinCode(e.target.value.replace(/\D/g, ''))}
               placeholder="숫자 4자리 입력"
               maxLength={4}
+              inputMode="numeric"
+              autoFocus
               style={{ ...inputStyle, letterSpacing: '0.2em' }}
             />
           </div>

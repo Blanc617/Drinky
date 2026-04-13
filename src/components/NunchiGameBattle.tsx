@@ -20,6 +20,7 @@ interface ClaimEntry {
   slotIdx: number
   userId: string
   name: string
+  order: number  // 수신 순서 (0-indexed)
 }
 
 type Phase = 'intro' | 'playing' | 'showing' | 'result'
@@ -36,6 +37,7 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
   const [myChoice, setMyChoice] = useState<number | null>(null)
   const [myPoints, setMyPoints] = useState(0)
   const [lastResult, setLastResult] = useState<'success' | 'collision' | 'missed' | null>(null)
+  const [lastPoints, setLastPoints] = useState(0)
 
   const phaseRef        = useRef<Phase>('intro')
   const roundRef        = useRef(0)
@@ -60,7 +62,8 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
   function startRound(r: number) {
     if (r >= totalRoundsRef.current) {
       setPhaseSync('result')
-      const score = Math.min(100, Math.round((myPointsRef.current / (totalRoundsRef.current * 3)) * 100))
+      const maxPts = totalRoundsRef.current * playerCountRef.current
+      const score = maxPts > 0 ? Math.min(100, Math.round((myPointsRef.current / maxPts) * 100)) : 0
       setTimeout(() => onCompleteRef.current(score), 1500)
       return
     }
@@ -72,6 +75,7 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
     setMyChoice(null)
     submittedRef.current = false
     setLastResult(null)
+    setLastPoints(0)
     setTimeLeft(ROUND_TIME)
     setPhaseSync('playing')
 
@@ -91,17 +95,29 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
     if (timerRef.current) clearInterval(timerRef.current)
     setPhaseSync('showing')
 
+    const claims = roundClaimsRef.current
+    // 고유 슬롯(충돌 없는 슬롯)만 추린 뒤 수신 순서(order)로 정렬
+    const uniqueClaims = claims
+      .filter(c => claims.filter(x => x.slotIdx === c.slotIdx).length === 1)
+      .sort((a, b) => a.order - b.order)
+
     const mySlot = myChoiceRef.current
     if (mySlot === null) {
       setLastResult('missed')
+      setLastPoints(0)
     } else {
-      const claimersOnMySlot = roundClaimsRef.current.filter(c => c.slotIdx === mySlot)
-      if (claimersOnMySlot.length === 1) {
-        myPointsRef.current += 3
+      const claimersOnMySlot = claims.filter(c => c.slotIdx === mySlot)
+      if (claimersOnMySlot.length > 1) {
+        setLastResult('collision')
+        setLastPoints(0)
+      } else {
+        // 고유 선택자 중 내 순위 (0-indexed → 1-indexed)
+        const rank = uniqueClaims.findIndex(c => c.userId === userId) + 1
+        const pts = uniqueClaims.length - rank + 1  // 1등=uniqueCount점, 꼴찌=1점
+        myPointsRef.current += pts
         setMyPoints(myPointsRef.current)
         setLastResult('success')
-      } else {
-        setLastResult('collision')
+        setLastPoints(pts)
       }
     }
 
@@ -144,7 +160,8 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
         }
         if (r !== roundRef.current || phaseRef.current !== 'playing') return
 
-        const entry: ClaimEntry = { slotIdx, userId: uid, name }
+        const order = roundClaimsRef.current.length  // 수신 순서
+        const entry: ClaimEntry = { slotIdx, userId: uid, name, order }
         roundClaimsRef.current = [...roundClaimsRef.current, entry]
         setRoundClaims([...roundClaimsRef.current])
 
@@ -223,8 +240,8 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
 
       {isShowing && lastResult && (
         <div style={{ fontSize: 16, fontWeight: 700, color: resultColor, textAlign: 'center' }}>
-          {lastResult === 'success' ? '✓ 성공! +3점' :
-           lastResult === 'collision' ? '💥 충돌!' : '⏱ 선택 안 함'}
+          {lastResult === 'success' ? `✓ 성공! +${lastPoints}점` :
+           lastResult === 'collision' ? '💥 충돌! +0점' : '⏱ 선택 안 함 +0점'}
         </div>
       )}
       {!isShowing && (

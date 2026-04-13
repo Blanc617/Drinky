@@ -18,7 +18,7 @@ function isClap(n: number): boolean {
   return String(n).split('').some(d => ['3', '6', '9'].includes(d))
 }
 
-function getTimeLimit(num: number) { return num === 1 ? 0.8 : 0.5 }
+const TIME_LIMIT = 1
 
 type Phase = 'intro' | 'playing' | 'feedback' | 'result'
 
@@ -29,7 +29,7 @@ export default function ThreeSixNineBattle({ onComplete, roomCode, userId, myNam
   const [totalMistakes, setTotalMistakes] = useState(0)
   const [myMistakes, setMyMistakes] = useState(0)
   const [myCorrect, setMyCorrect] = useState(0)
-  const [timeLeft, setTimeLeft] = useState(0.8)
+  const [timeLeft, setTimeLeft] = useState(TIME_LIMIT)
   const [feedback, setFeedback] = useState<{ correct: boolean; playerName: string; shouldClap: boolean } | null>(null)
 
   const phaseRef           = useRef<Phase>('intro')
@@ -61,13 +61,12 @@ export default function ThreeSixNineBattle({ onComplete, roomCode, userId, myNam
     answeredRef.current = false
     setCurrentNum(num)
     setCurrentTurnUserId(turnUserId)
-    const timeLimit = getTimeLimit(num)
     setFeedback(null)
-    setTimeLeft(timeLimit)
+    setTimeLeft(TIME_LIMIT)
     setPhaseSync('playing')
 
     stopTimer()
-    let t = timeLimit
+    let t = TIME_LIMIT
     timerRef.current = setInterval(() => {
       t -= 0.05
       setTimeLeft(Math.max(0, t))
@@ -121,7 +120,7 @@ export default function ThreeSixNineBattle({ onComplete, roomCode, userId, myNam
 
     const delay = correct ? 300 : 1200
 
-    if (totalMistakesRef.current >= roundsRef.current) {
+    if (!correct && totalMistakesRef.current >= roundsRef.current) {
       setTimeout(() => {
         setPhaseSync('result')
         const myTurns = myCorrectRef.current + myMistakesRef.current
@@ -130,10 +129,15 @@ export default function ThreeSixNineBattle({ onComplete, roomCode, userId, myNam
       }, delay)
     } else {
       const order = playerOrderRef.current
-      const nextNum = currentNumRef.current + 1
       const curIdx = order.indexOf(currentTurnRef.current)
       const nextTurnUserId = order[(curIdx + 1) % order.length]
-      setTimeout(() => startTurn(nextNum, nextTurnUserId), delay)
+      if (correct) {
+        // 맞으면 다음 숫자, 다음 사람
+        setTimeout(() => startTurn(currentNumRef.current + 1, nextTurnUserId), delay)
+      } else {
+        // 틀리면 1부터 다시, 다음 사람부터 시작
+        setTimeout(() => startTurn(1, nextTurnUserId), delay)
+      }
     }
   }
 
@@ -228,7 +232,7 @@ export default function ThreeSixNineBattle({ onComplete, roomCode, userId, myNam
             stroke={phase === 'feedback' ? feedbackColor : 'var(--amber)'}
             strokeWidth="4"
             strokeDasharray={circumference}
-            strokeDashoffset={circumference * (1 - timeLeft / getTimeLimit(currentNum))}
+            strokeDashoffset={circumference * (1 - timeLeft / TIME_LIMIT)}
             strokeLinecap="round"
             style={{ transition: 'stroke-dashoffset 0.05s linear', filter: 'drop-shadow(0 0 4px rgba(245,158,11,0.5))' }}
           />
