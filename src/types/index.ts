@@ -24,11 +24,11 @@ export interface IntoxicationResult {
 }
 
 export const INTOXICATION_LEVELS = [
-  { level: 1, label: '완전 멀쩡', min: 95, max: 100 },
-  { level: 2, label: '알딸딸',   min: 80, max: 94 },
-  { level: 3, label: '기분 좋음', min: 65, max: 79 },
-  { level: 4, label: '슬슬 취함', min: 50, max: 64 },
-  { level: 5, label: '많이 취함', min: 35, max: 49 },
-  { level: 6, label: '필름 위험', min: 20, max: 34 },
-  { level: 7, label: '완전 만취', min: 0,  max: 19 },
+  { level: 1, label: '완전 멀쩡', min: 80, max: 100 }, // 자연 변동성(±15~20%) 감안
+  { level: 2, label: '알딸딸',   min: 65, max: 79 },
+  { level: 3, label: '기분 좋음', min: 52, max: 64 },
+  { level: 4, label: '슬슬 취함', min: 40, max: 51 },
+  { level: 5, label: '많이 취함', min: 28, max: 39 },
+  { level: 6, label: '필름 위험', min: 16, max: 27 },
+  { level: 7, label: '완전 만취', min: 0,  max: 15 },
 ]

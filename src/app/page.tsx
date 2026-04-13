@@ -312,7 +312,7 @@ export default function Home() {
 
           {/* ── Bottom actions ── */}
           {user ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
               {showFirstTimer && (
                 <div style={{
                   position: 'fixed', inset: 0, zIndex: 50,
@@ -335,11 +335,46 @@ export default function Home() {
                   </div>
                 </div>
               )}
-              <button onClick={handleMeasure} className="btn-primary">
-                지금 바로 측정하기
+
+              {/* 혼자 플레이 */}
+              <button
+                onClick={handleMeasure}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 16,
+                  padding: '20px 24px', borderRadius: 20, cursor: 'pointer',
+                  background: 'linear-gradient(135deg, #f59e0b, #f97316)',
+                  border: 'none', width: '100%', textAlign: 'left',
+                  boxShadow: '0 4px 20px rgba(245,158,11,0.35)',
+                  transition: 'opacity 0.15s ease',
+                }}
+              >
+                <span style={{ fontSize: 32, flexShrink: 0 }}>🧪</span>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: '#fff', letterSpacing: '-0.01em' }}>혼자 측정하기</div>
+                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', marginTop: 2 }}>인지능력·반응속도로 취함 단계 측정</div>
+                </div>
+                <span style={{ marginLeft: 'auto', color: 'rgba(255,255,255,0.6)', fontSize: 20 }}>→</span>
               </button>
-              <button onClick={() => router.push('/history')} className="btn-secondary">
-                나의 음주 역사 📋
+
+              {/* 대전 모드 */}
+              <button
+                onClick={() => router.push('/test-new')}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 16,
+                  padding: '20px 24px', borderRadius: 20, cursor: 'pointer',
+                  background: 'var(--surface)',
+                  border: '2px solid rgba(139,92,246,0.5)',
+                  width: '100%', textAlign: 'left',
+                  boxShadow: '0 4px 20px rgba(139,92,246,0.15)',
+                  transition: 'opacity 0.15s ease',
+                }}
+              >
+                <span style={{ fontSize: 32, flexShrink: 0 }}>🎮</span>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.01em' }}>대전 게임</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>여럿이 함께 즐기는 술자리 게임</div>
+                </div>
+                <span style={{ marginLeft: 'auto', color: 'var(--text-dim)', fontSize: 20 }}>→</span>
               </button>
             </div>
           ) : (

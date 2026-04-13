@@ -28,6 +28,7 @@ export default function ReactionTest({ onComplete }: Props) {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const roundRef = useRef(0)
   const reactedRef = useRef(false)
+  const isPracticeRef = useRef(false)
 
   const finishGame = useCallback((times: number[], missCount: number) => {
     setPhase('result')
@@ -39,10 +40,14 @@ export default function ReactionTest({ onComplete }: Props) {
     const speedBonus = Math.max(0, (DISPLAY_DURATION - avg) / DISPLAY_DURATION * 30)
     const finalScore = Math.min(100, Math.round(accuracy * 0.7 + speedBonus))
     setScore(finalScore)
-    setTimeout(() => onComplete(finalScore), 1500)
+    if (!isPracticeRef.current) setTimeout(() => onComplete(finalScore), 1500)
   }, [onComplete])
 
   const runRound = useCallback((currentRound: number, prevTimes: number[], prevMisses: number) => {
+    if (isPracticeRef.current && currentRound >= 1) {
+      finishGame(prevTimes, prevMisses)
+      return
+    }
     if (currentRound >= ROUNDS) {
       finishGame(prevTimes, prevMisses)
       return
@@ -164,7 +169,8 @@ export default function ReactionTest({ onComplete }: Props) {
             <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>폭탄 → 탭하면 패널티</span>
           </div>
         </div>
-        <button className="btn-primary" onClick={startGame}>시작하기</button>
+        <button className="btn-secondary" onClick={() => { isPracticeRef.current = true; startGame() }}>연습하기</button>
+        <button className="btn-primary" onClick={() => { isPracticeRef.current = false; startGame() }}>시작하기</button>
       </div>
     )
   }
@@ -195,7 +201,10 @@ export default function ReactionTest({ onComplete }: Props) {
             <span style={{ fontWeight: 700 }}>{avg}ms</span>
           </div>
         </div>
-        <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>다음 테스트로 이동 중...</div>
+        {isPracticeRef.current
+          ? <button className="btn-secondary" onClick={() => { isPracticeRef.current = false; setPhase('intro') }}>돌아가기</button>
+          : <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>다음 테스트로 이동 중...</div>
+        }
       </div>
     )
   }

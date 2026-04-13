@@ -32,6 +32,7 @@ export default function CognitionTest({ onComplete }: Props) {
   const [correctRounds, setCorrectRounds] = useState(0)
   const [lastOk, setLastOk] = useState(true)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isPracticeRef = useRef(false)
 
   function generateSequence(length: number): number[] {
     return Array.from({ length }, () => Math.floor(Math.random() * 4))
@@ -78,15 +79,14 @@ export default function CognitionTest({ onComplete }: Props) {
 
     // 현재 입력이 틀렸는지 확인
     if (newInput[newInput.length - 1] !== sequence[newInput.length - 1]) {
-      // 틀림
       setLastOk(false)
       setPhase('feedback')
       const next = round + 1
       setTimeout(() => {
-        if (next >= MAX_ROUNDS) {
+        if (isPracticeRef.current || next >= MAX_ROUNDS) {
           const score = Math.round((correctRounds / MAX_ROUNDS) * 100)
           setPhase('result')
-          setTimeout(() => onComplete(score), 1200)
+          if (!isPracticeRef.current) setTimeout(() => onComplete(score), 1200)
         } else {
           setRound(next)
           startRound(next)
@@ -103,10 +103,10 @@ export default function CognitionTest({ onComplete }: Props) {
       setPhase('feedback')
       const next = round + 1
       setTimeout(() => {
-        if (next >= MAX_ROUNDS) {
+        if (isPracticeRef.current || next >= MAX_ROUNDS) {
           const score = Math.round((newCorrect / MAX_ROUNDS) * 100)
           setPhase('result')
-          setTimeout(() => onComplete(score), 1200)
+          if (!isPracticeRef.current) setTimeout(() => onComplete(score), 1200)
         } else {
           setRound(next)
           startRound(next)
@@ -139,7 +139,8 @@ export default function CognitionTest({ onComplete }: Props) {
             총 {MAX_ROUNDS}라운드 · 라운드마다 한 칸씩 늘어납니다
           </div>
         </div>
-        <button className="btn-primary" onClick={() => startRound(0)}>시작하기</button>
+        <button className="btn-secondary" onClick={() => { isPracticeRef.current = true; startRound(0) }}>연습하기</button>
+        <button className="btn-primary" onClick={() => { isPracticeRef.current = false; startRound(0) }}>시작하기</button>
       </div>
     )
   }
@@ -157,7 +158,10 @@ export default function CognitionTest({ onComplete }: Props) {
         <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
           {correctRounds} / {MAX_ROUNDS} 라운드 성공
         </div>
-        <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>다음 테스트로 이동 중...</div>
+        {isPracticeRef.current
+          ? <button className="btn-secondary" onClick={() => { isPracticeRef.current = false; setPhase('intro') }}>돌아가기</button>
+          : <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>다음 테스트로 이동 중...</div>
+        }
       </div>
     )
   }

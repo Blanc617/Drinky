@@ -42,6 +42,7 @@ export default function StroopTest({ onComplete }: Props) {
   const roundRef = useRef(0)
   const correctRef = useRef(0)
   const timesRef = useRef<number[]>([])
+  const isPracticeRef = useRef(false)
 
   const finishGame = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current)
@@ -52,10 +53,11 @@ export default function StroopTest({ onComplete }: Props) {
     const speedBonus = Math.max(0, (1500 - avgTime) / 1500 * 30)
     const score = Math.min(100, Math.round(accuracy * 0.7 + speedBonus))
     setPhase('result')
-    setTimeout(() => onComplete(score), 1500)
+    if (!isPracticeRef.current) setTimeout(() => onComplete(score), 1500)
   }, [onComplete])
 
   const startRound = useCallback((roundNum: number) => {
+    if (isPracticeRef.current && roundNum >= 1) { finishGame(); return }
     if (roundNum >= ROUNDS) { finishGame(); return }
     const next = generateRound()
     setCurrent(next)
@@ -142,7 +144,11 @@ export default function StroopTest({ onComplete }: Props) {
           </div>
         </div>
 
-        <button className="btn-primary" onClick={() => { roundRef.current = 0; correctRef.current = 0; timesRef.current = []; startRound(0) }}>
+        <button className="btn-secondary" style={{ marginBottom: 0 }} onClick={() => {
+          isPracticeRef.current = true
+          roundRef.current = 0; correctRef.current = 0; timesRef.current = []; startRound(0)
+        }}>연습하기</button>
+        <button className="btn-primary" onClick={() => { isPracticeRef.current = false; roundRef.current = 0; correctRef.current = 0; timesRef.current = []; startRound(0) }}>
           시작하기
         </button>
       </div>
@@ -174,7 +180,10 @@ export default function StroopTest({ onComplete }: Props) {
             <span style={{ fontWeight: 700 }}>{avgTime}ms</span>
           </div>
         </div>
-        <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>다음 테스트로 이동 중...</div>
+        {isPracticeRef.current
+          ? <button className="btn-secondary" onClick={() => { isPracticeRef.current = false; setPhase('intro') }}>돌아가기</button>
+          : <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>다음 테스트로 이동 중...</div>
+        }
       </div>
     )
   }

@@ -15,6 +15,7 @@ export default function BalanceTest({ onComplete }: Props) {
   const [score, setScore] = useState(0)
   const variancesRef = useRef<number[]>([])
   const startTimeRef = useRef(0)
+  const isPracticeRef = useRef(false)
 
   function handleMotion(event: DeviceMotionEvent) {
     const acc = event.accelerationIncludingGravity
@@ -40,14 +41,14 @@ export default function BalanceTest({ onComplete }: Props) {
         clearInterval(timer)
         window.removeEventListener('devicemotion', handleMotion)
         const data = variancesRef.current
-        if (data.length === 0) { onComplete(50); return }
+        if (data.length === 0) { if (!isPracticeRef.current) onComplete(50); setPhase('result'); return }
         const mean = data.reduce((a, b) => a + b, 0) / data.length
         const variance = data.reduce((a, b) => a + (b - mean) ** 2, 0) / data.length
         const raw = Math.max(0, 100 - variance * 2)
         const finalScore = Math.min(100, Math.round(raw))
         setScore(finalScore)
         setPhase('result')
-        setTimeout(() => onComplete(finalScore), 1500)
+        if (!isPracticeRef.current) setTimeout(() => onComplete(finalScore), 1500)
       }
     }, 100)
     return () => clearInterval(timer)
@@ -93,7 +94,8 @@ export default function BalanceTest({ onComplete }: Props) {
             흔들림이 적을수록 높은 점수.<br />최대한 가만히!
           </div>
         </div>
-        <button className="btn-primary" onClick={requestPermissionAndStart}>시작하기</button>
+        <button className="btn-secondary" onClick={() => { isPracticeRef.current = true; requestPermissionAndStart() }}>연습하기</button>
+        <button className="btn-primary" onClick={() => { isPracticeRef.current = false; requestPermissionAndStart() }}>시작하기</button>
       </div>
     )
   }
@@ -123,7 +125,10 @@ export default function BalanceTest({ onComplete }: Props) {
         <div style={{ fontFamily: "'Bebas Neue'", fontSize: 80, color: 'var(--amber)', lineHeight: 1, textShadow: '0 0 30px rgba(245,158,11,0.5)' }}>
           {score}<span style={{ fontSize: 32 }}>점</span>
         </div>
-        <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>결과 저장 중...</div>
+        {isPracticeRef.current
+          ? <button className="btn-secondary" onClick={() => { isPracticeRef.current = false; setPhase('intro') }}>돌아가기</button>
+          : <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>결과 저장 중...</div>
+        }
       </div>
     )
   }
