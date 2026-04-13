@@ -127,7 +127,7 @@ export default function BattleRoomPage() {
 
   // ── Subscribe to channel once identity is ready ──
   useEffect(() => {
-    if (!userId || !myName || !mounted) return
+    if (!userId || !myName) return
 
     const supabase = createClient()
     const channel = supabase.channel(`battle:${code}`, {
@@ -215,7 +215,7 @@ export default function BattleRoomPage() {
       if (resultsCdIntervalRef.current) clearInterval(resultsCdIntervalRef.current)
       channel.unsubscribe()
     }
-  }, [userId, myName, amHost, code, checkAllDone, mounted])
+  }, [userId, myName, amHost, code, checkAllDone])
 
   // ── Actions ──
   function handleSelectGame(key: GameKey) {
@@ -247,6 +247,13 @@ export default function BattleRoomPage() {
     checkAllDone()
   }
 
+  function handleNameSubmit() {
+    const n = nameInput.trim() || '익명'
+    sessionStorage.setItem('battle_name', n)
+    setMyName(n)
+    setNeedsName(false)
+  }
+
   function handleRestart() {
     if (resultsCdIntervalRef.current) {
       clearInterval(resultsCdIntervalRef.current)
@@ -269,6 +276,39 @@ export default function BattleRoomPage() {
     return (
       <main className="flex flex-col flex-1 items-center justify-center">
         <div style={{ color: 'var(--text-dim)', fontSize: 14 }}>연결 중...</div>
+      </main>
+    )
+  }
+
+  if (needsName) {
+    return (
+      <main className="flex flex-col flex-1 px-6 pt-8 pb-8 gap-6 w-full">
+        <button
+          onClick={() => router.push('/')}
+          style={{ width: 40, height: 40, borderRadius: 12, background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--text)', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        >
+          ←
+        </button>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
+          <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)' }}>닉네임을 입력하세요</div>
+          <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>방 코드: <strong style={{ color: 'var(--amber)' }}>{code}</strong></div>
+          <input
+            value={nameInput}
+            onChange={e => setNameInput(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && nameInput.trim() && handleNameSubmit()}
+            placeholder="이름"
+            maxLength={10}
+            autoFocus
+            style={{
+              width: '100%', padding: '12px 16px',
+              background: 'var(--surface2)', border: '1px solid var(--border)',
+              borderRadius: 12, color: 'var(--text)', fontSize: 16, outline: 'none',
+            }}
+          />
+          <button className="btn-primary" onClick={handleNameSubmit} disabled={!nameInput.trim()}>
+            입장하기
+          </button>
+        </div>
       </main>
     )
   }
