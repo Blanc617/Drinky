@@ -5,9 +5,8 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 interface Props { onComplete: (score: number) => void }
 
 const ROUNDS = 6
-const MIN_DELAY = 1500
-const MAX_DELAY = 4500
-const FAKE_CHANCE = 0.35
+const MIN_DELAY = 3000
+const MAX_DELAY = 8000
 const FAKE_DURATION = 850
 const SIGNAL_TIMEOUT = 2000
 
@@ -28,6 +27,7 @@ export default function TimingChallenge({ onComplete }: Props) {
   const successRef = useRef(0)
   const rtListRef = useRef<number[]>([])
   const roundRef = useRef(0)
+  const fakeRoundsRef = useRef<Set<number>>(new Set())
 
   function clearTimer() {
     if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null }
@@ -60,15 +60,25 @@ export default function TimingChallenge({ onComplete }: Props) {
     setPhaseSync('waiting')
 
     function scheduleSignal() {
+      const hasFake = fakeRoundsRef.current.has(roundNum)
       const delay = MIN_DELAY + Math.random() * (MAX_DELAY - MIN_DELAY)
+
       timerRef.current = setTimeout(() => {
-        if (Math.random() < FAKE_CHANCE) {
-          // fake signal
+        if (hasFake) {
+          // 이 라운드는 함정 있음 — fake 먼저 보여주고 이후 real
           setPhaseSync('fake')
           timerRef.current = setTimeout(() => {
             if (phaseRef.current === 'fake') {
               setPhaseSync('waiting')
-              scheduleSignal()
+              // fake 끝난 뒤 real signal 스케줄
+              const realDelay = MIN_DELAY + Math.random() * (MAX_DELAY - MIN_DELAY)
+              timerRef.current = setTimeout(() => {
+                signalTimeRef.current = Date.now()
+                setPhaseSync('signal')
+                timerRef.current = setTimeout(() => {
+                  if (phaseRef.current === 'signal') endRound('timeout')
+                }, SIGNAL_TIMEOUT)
+              }, realDelay)
             }
           }, FAKE_DURATION)
         } else {
@@ -115,6 +125,15 @@ export default function TimingChallenge({ onComplete }: Props) {
   }
 
   function startCountdown() {
+    // 2~6개 라운드를 랜덤으로 함정 라운드로 지정
+    const fakeCount = 2 + Math.floor(Math.random() * 5) // 2,3,4,5,6
+    const allRounds = Array.from({ length: ROUNDS }, (_, i) => i)
+    for (let i = allRounds.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [allRounds[i], allRounds[j]] = [allRounds[j], allRounds[i]]
+    }
+    fakeRoundsRef.current = new Set(allRounds.slice(0, fakeCount))
+
     setPhase('countdown')
     setCountdown(3)
     successRef.current = 0

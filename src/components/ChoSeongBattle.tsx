@@ -2,41 +2,40 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Q } from './choSeongQuestions'
+import { Q, QUESTION_POOL } from './choSeongQuestions'
 
 interface Props {
   onComplete: (score: number) => void
   roomCode: string
   userId: string
   myName: string
+  isHost: boolean
+  rounds?: number
 }
 
-// ── 배틀 고정 문제 10개 (모든 플레이어 동일 순서) ────────────
-const QUESTIONS: Q[] = [
-  { pattern: ['ㅅ','ㄹ'],        display: 'ㅅ ㄹ' },        // 사랑, 소리
-  { pattern: ['ㄴ','ㅈ','ㄱ'],   display: 'ㄴ ㅈ ㄱ' },     // 냉장고
-  { pattern: ['ㄱ','ㄱ'],        display: 'ㄱ ㄱ' },         // 감기, 공기
-  { pattern: ['ㅂ','ㅎ','ㄱ'],   display: 'ㅂ ㅎ ㄱ' },     // 비행기
-  { pattern: ['ㅅ','ㄱ'],        display: 'ㅅ ㄱ' },         // 사과, 생각
-  { pattern: ['ㅈ','ㄷ','ㅊ'],   display: 'ㅈ ㄷ ㅊ' },     // 자동차
-  { pattern: ['ㄷ','ㅎ','ㅁ','ㄱ'], display: 'ㄷ ㅎ ㅁ ㄱ' }, // 대한민국
-  { pattern: ['ㄱ','ㅇ','ㅇ'],   display: 'ㄱ ㅇ ㅇ' },     // 고양이
-  { pattern: ['ㅊ','ㄷ','ㅎ','ㄱ'], display: 'ㅊ ㄷ ㅎ ㄱ' }, // 초등학교
-  { pattern: ['ㅇ','ㄹ'],        display: 'ㅇ ㄹ' },         // 여름, 어른
-]
-
-const ROUND_TIME = 15 // 초
-const SHOW_DELAY = 3000 // ms
+const ROUND_COUNT = 4
+const ROUND_TIME = 7
+const SHOW_DELAY = 3000
 
 interface AnswerEntry {
   userId: string
   name: string
   word: string
-  rank: number // 제출 순서 (1-based)
+  rank: number
   ts: number
 }
 
-export default function ChoSeongBattle({ onComplete, roomCode, userId, myName }: Props) {
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr]
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]]
+  }
+  return a
+}
+
+export default function ChoSeongBattle({ onComplete, roomCode, userId, myName, isHost, rounds }: Props) {
+  const [ready, setReady] = useState(false)
   const [qIdx, setQIdx] = useState(0)
   const [phase, setPhase] = useState<'playing' | 'showing'>('playing')
   const [timeLeft, setTimeLeft] = useState(ROUND_TIME)
@@ -45,18 +44,31 @@ export default function ChoSeongBattle({ onComplete, roomCode, userId, myName }:
   const [answers, setAnswers] = useState<AnswerEntry[]>([])
   const [totalPoints, setTotalPoints] = useState(0)
 
-  const qIdxRef        = useRef(0)
-  const phaseRef       = useRef<'playing' | 'showing'>('playing')
-  const submittedRef   = useRef(false)
-  const answersRef     = useRef<AnswerEntry[]>([])
-  const rankRef        = useRef(0)
-  const totalPointsRef = useRef(0)
-  const timerRef       = useRef<ReturnType<typeof setInterval> | null>(null)
-  const onCompleteRef  = useRef(onComplete)
-  const channelRef     = useRef<ReturnType<ReturnType<typeof createClient>['channel']> | null>(null)
-  const advanceRef     = useRef<() => void>(() => {})
+  const questionsRef    = useRef<Q[]>([])
+  const qIdxRef         = useRef(0)
+  const phaseRef        = useRef<'playing' | 'showing'>('playing')
+  const submittedRef    = useRef(false)
+  const answersRef      = useRef<AnswerEntry[]>([])
+  const rankRef         = useRef(0)
+  const totalPointsRef  = useRef(0)
+  const timerRef        = useRef<ReturnType<typeof setInterval> | null>(null)
+  const onCompleteRef   = useRef(onComplete)
+  const channelRef      = useRef<ReturnType<ReturnType<typeof createClient>['channel']> | null>(null)
+  const advanceRef      = useRef<() => void>(() => {})
 
   onCompleteRef.current = onComplete
+
+  function startGame(questions: Q[]) {
+    questionsRef.current = questions
+    setReady(true)
+
+    let t = ROUND_TIME
+    timerRef.current = setInterval(() => {
+      t--
+      setTimeLeft(t)
+      if (t <= 0) { clearInterval(timerRef.current!); advanceRef.current() }
+    }, 1000)
+  }
 
   function submitAnswer() {
     if (submittedRef.current || phaseRef.current !== 'playing') return
@@ -82,8 +94,8 @@ export default function ChoSeongBattle({ onComplete, roomCode, userId, myName }:
       setTimeout(() => {
         const next = qIdxRef.current + 1
 
-        if (next >= QUESTIONS.length) {
-          const max = QUESTIONS.length * 3
+        if (next >= questionsRef.current.length) {
+          const max = questionsRef.current.length * 3
           const score = Math.min(100, Math.round((totalPointsRef.current / max) * 100))
           onCompleteRef.current(score)
           return
@@ -118,6 +130,10 @@ export default function ChoSeongBattle({ onComplete, roomCode, userId, myName }:
     channelRef.current = channel
 
     channel
+      .on('broadcast', { event: 'cs_init' }, ({ payload }) => {
+        const { questions } = payload as { questions: Q[] }
+        startGame(questions)
+      })
       .on('broadcast', { event: 'cs_answer' }, ({ payload }) => {
         const { qIdx: pIdx, userId: uid, name, word, ts } = payload as {
           qIdx: number; userId: string; name: string; word: string; ts: number
@@ -128,7 +144,7 @@ export default function ChoSeongBattle({ onComplete, roomCode, userId, myName }:
         const rank = rankRef.current
 
         if (uid === userId) {
-          const pts = Math.max(0, 4 - rank) // 1등 3점, 2등 2점, 3등 1점
+          const pts = Math.max(0, 4 - rank)
           totalPointsRef.current += pts
           setTotalPoints(totalPointsRef.current)
         }
@@ -137,14 +153,17 @@ export default function ChoSeongBattle({ onComplete, roomCode, userId, myName }:
         answersRef.current = [...answersRef.current, entry]
         setAnswers([...answersRef.current])
       })
-      .subscribe()
-
-    let t = ROUND_TIME
-    timerRef.current = setInterval(() => {
-      t--
-      setTimeLeft(t)
-      if (t <= 0) { clearInterval(timerRef.current!); advanceRef.current() }
-    }, 1000)
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED' && isHost) {
+          // 방장이 구독 완료 후 랜덤 문제를 골라 broadcast
+          const questions = shuffle(QUESTION_POOL).slice(0, rounds ?? ROUND_COUNT)
+          await channel.send({
+            type: 'broadcast',
+            event: 'cs_init',
+            payload: { questions },
+          })
+        }
+      })
 
     return () => {
       if (timerRef.current) clearInterval(timerRef.current)
@@ -152,7 +171,15 @@ export default function ChoSeongBattle({ onComplete, roomCode, userId, myName }:
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const q = QUESTIONS[qIdx]
+  if (!ready) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3" style={{ minHeight: 200 }}>
+        <div style={{ fontSize: 14, color: 'var(--text-muted)' }}>문제 준비 중...</div>
+      </div>
+    )
+  }
+
+  const q = questionsRef.current[qIdx]
   const medals = ['🥇', '🥈', '🥉']
   const isShowing = phase === 'showing'
 
@@ -160,10 +187,9 @@ export default function ChoSeongBattle({ onComplete, roomCode, userId, myName }:
     <div className="flex flex-col gap-4 w-full">
       <style>{`@keyframes slideIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}`}</style>
 
-      {/* 상단 헤더 */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>
-          {qIdx + 1} / {QUESTIONS.length}
+          {qIdx + 1} / {questionsRef.current.length}
         </div>
         <div style={{
           fontFamily: "'Bebas Neue'", fontSize: 32, lineHeight: 1,
@@ -178,7 +204,6 @@ export default function ChoSeongBattle({ onComplete, roomCode, userId, myName }:
         </div>
       </div>
 
-      {/* 초성 표시 */}
       <div style={{
         textAlign: 'center', padding: '12px 0 8px',
         fontFamily: "'Bebas Neue'",
@@ -194,9 +219,8 @@ export default function ChoSeongBattle({ onComplete, roomCode, userId, myName }:
         {q.pattern.length}글자 · 빠르게 제출할수록 높은 점수!
       </div>
 
-      {/* 입력 영역 */}
       {!isShowing && !submitted && (
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
           <input
             value={input}
             onChange={e => setInput(e.target.value)}
@@ -205,16 +229,17 @@ export default function ChoSeongBattle({ onComplete, roomCode, userId, myName }:
             autoFocus
             maxLength={12}
             style={{
-              flex: 1, padding: '12px 14px',
+              width: '100%', padding: '12px 14px',
               background: 'var(--surface2)', border: '1px solid var(--border)',
-              borderRadius: 12, color: 'var(--text)', fontSize: 16, outline: 'none',
+              borderRadius: 14, color: 'var(--text)', fontSize: 16, outline: 'none',
+              boxSizing: 'border-box',
             }}
           />
           <button
             onPointerDown={submitAnswer}
             disabled={!input.trim()}
             className="btn-primary"
-            style={{ padding: '0 18px', borderRadius: 12, flexShrink: 0, fontSize: 14 }}
+            style={{ width: '100%', padding: '13px', borderRadius: 14, fontSize: 15 }}
           >
             제출
           </button>
@@ -231,7 +256,6 @@ export default function ChoSeongBattle({ onComplete, roomCode, userId, myName }:
         </div>
       )}
 
-      {/* 실시간 제출 목록 */}
       <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
         실시간 현황 ({answers.length}명 제출)
       </div>
@@ -242,16 +266,13 @@ export default function ChoSeongBattle({ onComplete, roomCode, userId, myName }:
             아직 제출 없음...
           </div>
         )}
-
         {answers.map((a) => (
           <div
             key={`${a.userId}-${a.ts}`}
             className="glass p-3"
             style={{
               display: 'flex', alignItems: 'center', gap: 10,
-              border: a.userId === userId
-                ? '1px solid var(--amber)'
-                : '1px solid var(--border)',
+              border: a.userId === userId ? '1px solid var(--amber)' : '1px solid var(--border)',
               animation: 'slideIn 0.2s ease',
             }}
           >
@@ -268,7 +289,7 @@ export default function ChoSeongBattle({ onComplete, roomCode, userId, myName }:
 
       {isShowing && (
         <div style={{ textAlign: 'center', fontSize: 14, color: 'var(--amber)', fontWeight: 600, padding: '4px 0' }}>
-          {qIdx + 1 < QUESTIONS.length ? '잠시 후 다음 문제...' : '최종 집계 중...'}
+          {qIdx + 1 < questionsRef.current.length ? '잠시 후 다음 문제...' : '최종 집계 중...'}
         </div>
       )}
     </div>

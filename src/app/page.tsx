@@ -342,7 +342,7 @@ export default function Home() {
               </button>
 
               {/* 대전 모드 */}
-              <button onClick={() => router.push('/test-new')} className="btn-secondary" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '11px 24px' }}>
+              <button onClick={() => router.push('/battle')} className="btn-secondary" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '11px 24px' }}>
                 <span>🎮</span> 대전 게임
               </button>
             </div>

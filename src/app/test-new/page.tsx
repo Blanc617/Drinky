@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
 import SpotDifferenceTest from '@/components/SpotDifferenceTest'
 import CapitalQuizTest from '@/components/CapitalQuizTest'
 import GeneralQuizTest from '@/components/GeneralQuizTest'
@@ -25,7 +26,7 @@ import MindMeldGame from '@/components/MindMeldGame'
 
 type GameKey = 'reaction' | 'cognition' | 'stroop' | 'rps' | 'balance' | 'spot' | 'capital' | 'general' | 'falling' | 'beat' | 'rhythmtap' | 'rhythmcopy' | 'runner' | 'nunchi' | 'threesixnine' | 'choseong' | 'mafia' | 'liar' | 'timing' | 'balancegame' | 'mindmeld'
 
-const GAMES: { key: GameKey; emoji: string; label: string; tag: '기존' | '신규' | '리듬' | '술게임' }[] = [
+const GAMES: { key: GameKey; emoji: string; label: string; tag: '기존' | '신규' | '리듬' | '술게임'; minPlayers?: number; players?: string }[] = [
   { key: 'reaction',   emoji: '🐹', label: '두더지 잡기',     tag: '기존' },
   { key: 'cognition',  emoji: '🎨', label: '색 순서 기억',    tag: '기존' },
   { key: 'stroop',     emoji: '🌈', label: '스트룹 테스트',   tag: '기존' },
@@ -38,18 +39,22 @@ const GAMES: { key: GameKey; emoji: string; label: string; tag: '기존' | '신�
   { key: 'beat',       emoji: '🎯', label: '박자 맞추기',      tag: '리듬' },
   { key: 'rhythmtap',  emoji: '👈', label: '연타 리듬',        tag: '리듬' },
   { key: 'rhythmcopy', emoji: '🥁', label: '리듬 따라치기',    tag: '리듬' },
-  { key: 'runner',       emoji: '🏃', label: '달리기 장애물',  tag: '리듬' },
-  { key: 'nunchi',       emoji: '👀', label: '눈치게임',       tag: '술게임' },
-  { key: 'threesixnine', emoji: '3️⃣', label: '369 게임',       tag: '술게임' },
-  { key: 'choseong',     emoji: '🔤', label: '초성게임',        tag: '술게임' },
-  { key: 'mafia',        emoji: '🕵️', label: '마피아게임',      tag: '술게임' },
-  { key: 'liar',         emoji: '🤥', label: '라이어게임',      tag: '술게임' },
-  { key: 'timing',       emoji: '⚡', label: '타이밍 챌린지',   tag: '술게임' },
-  { key: 'balancegame',  emoji: '⚖️', label: '밸런스게임',      tag: '술게임' },
-  { key: 'mindmeld',     emoji: '🧠', label: '이심전심',        tag: '술게임' },
+  { key: 'runner',     emoji: '🏃', label: '달리기 장애물',    tag: '리듬' },
+  { key: 'mindmeld',     emoji: '🧠', label: '이심전심',       tag: '술게임', minPlayers: 2, players: '2명' },
+  { key: 'timing',       emoji: '⚡', label: '타이밍 챌린지',  tag: '술게임', minPlayers: 2, players: '2명+' },
+  { key: 'choseong',     emoji: '🔤', label: '초성게임',       tag: '술게임', minPlayers: 2, players: '2명+' },
+  { key: 'nunchi',       emoji: '👀', label: '눈치게임',       tag: '술게임', minPlayers: 3, players: '3명+' },
+  { key: 'threesixnine', emoji: '3️⃣', label: '369 게임',       tag: '술게임', minPlayers: 3, players: '3명+' },
+  { key: 'liar',         emoji: '🤥', label: '라이어게임',     tag: '술게임', minPlayers: 3, players: '3명+' },
+  { key: 'balancegame',  emoji: '⚖️', label: '밸런스게임',     tag: '술게임', minPlayers: 3, players: '3명+' },
+  { key: 'mafia',        emoji: '🕵️', label: '마피아게임',     tag: '술게임', minPlayers: 5, players: '5명+' },
 ]
 
 export default function TestNewPage() {
+  const searchParams = useSearchParams()
+  const drinkingOnly = searchParams.get('mode') === 'drinking'
+  const router = useRouter()
+
   const [playing, setPlaying] = useState<GameKey | null>(null)
   const [lastScore, setLastScore] = useState<{ key: GameKey; score: number } | null>(null)
 
@@ -64,7 +69,7 @@ export default function TestNewPage() {
       <main className="flex flex-col flex-1 px-6 pt-12 pb-8 gap-8">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => setPlaying(null)}
+            onClick={() => router.push('/')}
             style={{ width: 40, height: 40, borderRadius: 12, background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--text)', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           >
             ←
@@ -101,13 +106,34 @@ export default function TestNewPage() {
   const existing = GAMES.filter(g => g.tag === '기존')
   const newer = GAMES.filter(g => g.tag === '신규')
   const rhythm = GAMES.filter(g => g.tag === '리듬')
-  const drinking = GAMES.filter(g => g.tag === '술게임')
+  const drinking = GAMES.filter(g => g.tag === '술게임').sort((a, b) => (a.minPlayers ?? 0) - (b.minPlayers ?? 0))
+
+  const sections = drinkingOnly
+    ? [{ label: '술게임', list: drinking }]
+    : [{ label: '기존 게임', list: existing }, { label: '신규 게임', list: newer }, { label: '리듬 게임', list: rhythm }, { label: '술게임', list: drinking }]
 
   return (
     <main className="flex flex-col flex-1 px-6 pt-12 pb-8 gap-6" style={{ overflowY: 'auto' }}>
-      <div>
-        <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)' }}>게임 테스트</div>
-        <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>전체 {GAMES.length}개 게임 · 술게임 3개 추가</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <button
+          onClick={() => router.back()}
+          style={{
+            width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+            background: 'var(--surface2)', border: '1px solid var(--border)',
+            cursor: 'pointer', color: 'var(--text)', fontSize: 18,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          ←
+        </button>
+        <div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)' }}>
+            {drinkingOnly ? '🍺 술자리 게임' : '게임 테스트'}
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>
+            {drinkingOnly ? `${drinking.length}개 게임` : `전체 ${GAMES.length}개 게임`}
+          </div>
+        </div>
       </div>
 
       {lastScore && (
@@ -120,10 +146,10 @@ export default function TestNewPage() {
         </div>
       )}
 
-      {[{ label: '기존 게임', list: existing }, { label: '신규 게임', list: newer }, { label: '리듬 게임', list: rhythm }, { label: '술게임', list: drinking }].map(({ label, list }) => (
+      {sections.map(({ label, list }) => (
         <div key={label} className="flex flex-col gap-3">
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>{label}</div>
-          {list.map(({ key, emoji, label: name }) => (
+          {!drinkingOnly && <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>{label}</div>}
+          {list.map(({ key, emoji, label: name, players }) => (
             <button
               key={key}
               onClick={() => setPlaying(key)}
@@ -138,7 +164,14 @@ export default function TestNewPage() {
             >
               <span style={{ fontSize: 32 }}>{emoji}</span>
               <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>{name}</span>
-              <span style={{ marginLeft: 'auto', color: 'var(--text-dim)', fontSize: 18 }}>→</span>
+              {players && (
+                <span style={{
+                  marginLeft: 'auto', fontSize: 12, fontWeight: 600,
+                  color: 'var(--amber)', background: 'var(--amber-light)',
+                  padding: '3px 8px', borderRadius: 99, whiteSpace: 'nowrap',
+                }}>👥 {players}</span>
+              )}
+              <span style={{ color: 'var(--text-dim)', fontSize: 18, ...(players ? {} : { marginLeft: 'auto' }) }}>→</span>
             </button>
           ))}
         </div>

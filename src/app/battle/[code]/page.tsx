@@ -1,16 +1,21 @@
 'use client'
 
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 
-import NunchiGame from '@/components/NunchiGame'
+import NunchiGameBattle from '@/components/NunchiGameBattle'
 import ThreeSixNineGame from '@/components/ThreeSixNineGame'
 import ChoSeongBattle from '@/components/ChoSeongBattle'
+import TimingChallenge from '@/components/TimingChallenge'
+import LiarGame from '@/components/LiarGame'
+import BalanceGame from '@/components/BalanceGame'
+import MindMeldGame from '@/components/MindMeldGame'
+import MafiaGame from '@/components/MafiaGame'
 
-type GameKey = 'nunchi' | 'threesixnine' | 'choseong'
-type Phase = 'lobby' | 'countdown' | 'playing' | 'results'
+type GameKey = 'nunchi' | 'threesixnine' | 'choseong' | 'timing' | 'liar' | 'balancegame' | 'mindmeld' | 'mafia'
+type Phase = 'lobby' | 'round_select' | 'countdown' | 'playing' | 'results'
 
 interface Player { userId: string; name: string; isHost: boolean }
 
@@ -18,27 +23,33 @@ const GAMES: { key: GameKey; emoji: string; label: string }[] = [
   { key: 'nunchi',       emoji: '👀', label: '눈치게임' },
   { key: 'threesixnine', emoji: '3️⃣', label: '369 게임' },
   { key: 'choseong',     emoji: '🔤', label: '초성게임' },
+  { key: 'timing',       emoji: '⚡', label: '타이밍 챌린지' },
+  { key: 'liar',         emoji: '🤥', label: '라이어게임' },
+  { key: 'balancegame',  emoji: '⚖️', label: '밸런스게임' },
+  { key: 'mindmeld',     emoji: '🧠', label: '이심전심' },
+  { key: 'mafia',        emoji: '🕵️', label: '마피아게임' },
 ]
 
 export default function BattleRoomPage() {
   const { code: rawCode } = useParams<{ code: string }>()
   const code = rawCode.toUpperCase()
+  const router = useRouter()
 
   // Identity — populated in mount effect to avoid SSR mismatch
   const [userId, setUserId] = useState('')
   const [myName, setMyName] = useState('')
   const [amHost, setAmHost] = useState(false)
   const [mounted, setMounted] = useState(false)
-  const [needsName, setNeedsName] = useState(false)
-  const [nameInput, setNameInput] = useState('')
 
   // Room state
   const [phase, setPhase] = useState<Phase>('lobby')
   const [players, setPlayers] = useState<Player[]>([])
   const [selectedGame, setSelectedGame] = useState<GameKey>('nunchi')
+  const [selectedRounds, setSelectedRounds] = useState(5)
   const [countdown, setCountdown] = useState(3)
   const [doneMap, setDoneMap] = useState<Record<string, number>>({})
   const [myScore, setMyScore] = useState<number | null>(null)
+  const [resultsCountdown, setResultsCountdown] = useState(5)
 
   // Stable refs (avoid stale closures in channel callbacks)
   const channelRef      = useRef<RealtimeChannel | null>(null)
@@ -46,29 +57,27 @@ export default function BattleRoomPage() {
   const doneMapRef      = useRef<Record<string, number>>({})
   const startedCountRef = useRef(0)
   const selectedGameRef = useRef<GameKey>('nunchi')
-  const autoFinishRef   = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const cdIntervalRef   = useRef<ReturnType<typeof setInterval> | null>(null)
-  const userIdRef       = useRef('')
+  const selectedRoundsRef = useRef(5)
+  const autoFinishRef       = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const cdIntervalRef       = useRef<ReturnType<typeof setInterval> | null>(null)
+  const resultsCdIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const userIdRef           = useRef('')
+  const amHostRef           = useRef(false)
 
-  // ── Mount: read identity from sessionStorage ──
+  // ── Mount: load identity from Supabase auth ──
   useEffect(() => {
-    let id = sessionStorage.getItem('battle_userId')
-    if (!id) {
-      id = crypto.randomUUID()
-      sessionStorage.setItem('battle_userId', id)
-    }
-    userIdRef.current = id
-    setUserId(id)
-
-    const name = sessionStorage.getItem('battle_name')
-    if (name) {
+    const supabase = createClient()
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      const id = user?.id ?? crypto.randomUUID()
+      const name = user?.user_metadata?.full_name ?? user?.email?.split('@')[0] ?? '익명'
+      userIdRef.current = id
+      setUserId(id)
       setMyName(name)
-    } else {
-      setNeedsName(true)
-    }
-
-    setAmHost(sessionStorage.getItem(`battle_host_${code}`) === 'true')
-    setMounted(true)
+      const isHost = sessionStorage.getItem(`battle_host_${code}`) === 'true'
+      amHostRef.current = isHost
+      setAmHost(isHost)
+      setMounted(true)
+    })
   }, [code])
 
   // ── All-done check ──
@@ -80,9 +89,36 @@ export default function BattleRoomPage() {
     }
   }, [])
 
+  // ── Auto-return to lobby after results ──
+  useEffect(() => {
+    if (phase !== 'results') {
+      if (resultsCdIntervalRef.current) {
+        clearInterval(resultsCdIntervalRef.current)
+        resultsCdIntervalRef.current = null
+      }
+      return
+    }
+    setResultsCountdown(5)
+    let c = 5
+    resultsCdIntervalRef.current = setInterval(() => {
+      c--
+      setResultsCountdown(c)
+      if (c <= 0) {
+        clearInterval(resultsCdIntervalRef.current!)
+        resultsCdIntervalRef.current = null
+        if (amHostRef.current) {
+          channelRef.current?.send({ type: 'broadcast', event: 'restart', payload: {} })
+        }
+      }
+    }, 1000)
+    return () => {
+      if (resultsCdIntervalRef.current) clearInterval(resultsCdIntervalRef.current)
+    }
+  }, [phase])
+
   // ── Subscribe to channel once identity is ready ──
   useEffect(() => {
-    if (!userId || !myName) return
+    if (!userId || !myName || !mounted) return
 
     const supabase = createClient()
     const channel = supabase.channel(`battle:${code}`, {
@@ -108,6 +144,14 @@ export default function BattleRoomPage() {
         selectedGameRef.current = payload.gameKey
         setSelectedGame(payload.gameKey)
       })
+      .on('broadcast', { event: 'round_select' }, ({ payload }) => {
+        selectedGameRef.current = payload.gameKey
+        setSelectedGame(payload.gameKey)
+        setPhase('round_select')
+      })
+      .on('broadcast', { event: 'cancel_round_select' }, () => {
+        setPhase('lobby')
+      })
       .on('broadcast', { event: 'start' }, ({ payload }) => {
         // Clear previous game state
         doneMapRef.current = {}
@@ -116,23 +160,26 @@ export default function BattleRoomPage() {
         selectedGameRef.current = payload.gameKey
         setSelectedGame(payload.gameKey)
         startedCountRef.current = playersRef.current.length
+        const rounds: number = payload.rounds ?? 5
+        selectedRoundsRef.current = rounds
+        setSelectedRounds(rounds)
 
-        // Start countdown
+        // 절대 시각 기준 카운트다운 — 모든 클라이언트가 동일 시점에 게임 시작
+        const startAt: number = payload.startAt ?? Date.now() + 4000
         setPhase('countdown')
         if (cdIntervalRef.current) clearInterval(cdIntervalRef.current)
-        let c = 3
-        setCountdown(c)
+
         cdIntervalRef.current = setInterval(() => {
-          c--
-          setCountdown(c)
-          if (c === 0) {
+          const remaining = Math.ceil((startAt - Date.now()) / 1000)
+          if (remaining > 0) {
+            setCountdown(remaining)
+          } else {
             clearInterval(cdIntervalRef.current!)
             cdIntervalRef.current = null
             setPhase('playing')
-            // Auto-advance to results after 2 minutes
             autoFinishRef.current = setTimeout(() => setPhase('results'), 120_000)
           }
-        }, 1000)
+        }, 100)
       })
       .on('broadcast', { event: 'player_done' }, ({ payload }) => {
         const { userId: doneId, score } = payload as { userId: string; score: number }
@@ -156,9 +203,10 @@ export default function BattleRoomPage() {
     return () => {
       if (autoFinishRef.current) clearTimeout(autoFinishRef.current)
       if (cdIntervalRef.current) clearInterval(cdIntervalRef.current)
+      if (resultsCdIntervalRef.current) clearInterval(resultsCdIntervalRef.current)
       channel.unsubscribe()
     }
-  }, [userId, myName, amHost, code, checkAllDone])
+  }, [userId, myName, amHost, code, checkAllDone, mounted])
 
   // ── Actions ──
   function handleSelectGame(key: GameKey) {
@@ -170,7 +218,15 @@ export default function BattleRoomPage() {
 
   function handleStart() {
     if (!amHost) return
-    channelRef.current?.send({ type: 'broadcast', event: 'start', payload: { gameKey: selectedGame } })
+    channelRef.current?.send({ type: 'broadcast', event: 'round_select', payload: { gameKey: selectedGame } })
+  }
+
+  function handleConfirmRounds(n: number) {
+    if (!amHost) return
+    selectedRoundsRef.current = n
+    setSelectedRounds(n)
+    const startAt = Date.now() + 4000
+    channelRef.current?.send({ type: 'broadcast', event: 'start', payload: { gameKey: selectedGame, startAt, rounds: n } })
   }
 
   function handleGameComplete(score: number) {
@@ -183,15 +239,19 @@ export default function BattleRoomPage() {
   }
 
   function handleRestart() {
-    if (!amHost) return
-    channelRef.current?.send({ type: 'broadcast', event: 'restart', payload: {} })
-  }
-
-  function handleNameSubmit() {
-    const n = nameInput.trim() || '익명'
-    sessionStorage.setItem('battle_name', n)
-    setMyName(n)
-    setNeedsName(false)
+    if (resultsCdIntervalRef.current) {
+      clearInterval(resultsCdIntervalRef.current)
+      resultsCdIntervalRef.current = null
+    }
+    if (amHost) {
+      channelRef.current?.send({ type: 'broadcast', event: 'restart', payload: {} })
+    } else {
+      // 비방장은 자기 화면만 로비로 이동 (방장 카운트다운이 만료되면 어차피 전체 이동)
+      doneMapRef.current = {}
+      setDoneMap({})
+      setMyScore(null)
+      setPhase('lobby')
+    }
   }
 
   // ── Renders ──
@@ -204,27 +264,65 @@ export default function BattleRoomPage() {
     )
   }
 
-  if (needsName) {
+  // ── Round Select ──
+  if (phase === 'round_select') {
+    const selGame = GAMES.find(g => g.key === selectedGame)!
+    function handleCancelRoundSelect() {
+      if (amHost) {
+        channelRef.current?.send({ type: 'broadcast', event: 'cancel_round_select', payload: {} })
+      } else {
+        setPhase('lobby')
+      }
+    }
     return (
-      <main className="flex flex-col flex-1 px-6 items-center justify-center gap-6 w-full">
-        <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)' }}>닉네임을 입력하세요</div>
-        <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>방 코드: <strong style={{ color: 'var(--amber)' }}>{code}</strong></div>
-        <input
-          value={nameInput}
-          onChange={e => setNameInput(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && nameInput.trim() && handleNameSubmit()}
-          placeholder="이름"
-          maxLength={10}
-          autoFocus
-          style={{
-            width: '100%', padding: '12px 16px',
-            background: 'var(--surface2)', border: '1px solid var(--border)',
-            borderRadius: 12, color: 'var(--text)', fontSize: 16, outline: 'none',
-          }}
-        />
-        <button className="btn-primary" onClick={handleNameSubmit} disabled={!nameInput.trim()}>
-          입장하기
+      <main className="flex flex-col flex-1 px-6 pt-8 pb-8 gap-8">
+        <button
+          onClick={handleCancelRoundSelect}
+          style={{ width: 40, height: 40, borderRadius: 12, background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--text)', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        >
+          ←
         </button>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: 36 }}>{selGame.emoji}</div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)', marginTop: 4 }}>{selGame.label}</div>
+          <div style={{ fontSize: 14, color: 'var(--text-muted)', marginTop: 6 }}>
+            {amHost ? '라운드 수를 선택하세요' : '방장이 라운드를 선택하는 중...'}
+          </div>
+        </div>
+        {amHost ? (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10, width: '100%' }}>
+              {[1,2,3,4,5,6,7,8,9,10].map(n => (
+                <button
+                  key={n}
+                  onClick={() => setSelectedRounds(n)}
+                  style={{
+                    padding: '14px 0',
+                    borderRadius: 14,
+                    background: selectedRounds === n ? 'rgba(232,137,12,0.12)' : 'var(--surface)',
+                    border: selectedRounds === n ? '2px solid var(--amber)' : '1px solid var(--border)',
+                    cursor: 'pointer',
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+                    transition: 'all 0.12s ease',
+                    WebkitTapHighlightColor: 'transparent',
+                  } as React.CSSProperties}
+                >
+                  <span style={{ fontFamily: "'Bebas Neue'", fontSize: 28, color: selectedRounds === n ? 'var(--amber)' : 'var(--text-muted)', lineHeight: 1 }}>{n}</span>
+                </button>
+              ))}
+            </div>
+            <div style={{ textAlign: 'center', fontSize: 13, color: 'var(--text-dim)' }}>
+              선택: <span style={{ color: 'var(--amber)', fontWeight: 700 }}>{selectedRounds}라운드</span>
+            </div>
+            <button className="btn-primary" onClick={() => handleConfirmRounds(selectedRounds)}>
+              확인 →
+            </button>
+          </>
+        ) : (
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, color: 'var(--text-muted)' }}>
+            잠시만 기다려주세요...
+          </div>
+        )}
       </main>
     )
   }
@@ -233,8 +331,15 @@ export default function BattleRoomPage() {
   if (phase === 'countdown') {
     const game = GAMES.find(g => g.key === selectedGame)
     return (
-      <main className="flex flex-col flex-1 items-center justify-center gap-6 px-6">
+      <main className="flex flex-col flex-1 px-6 pt-8 pb-8">
         <style>{`@keyframes popIn{from{transform:scale(0.4);opacity:0}to{transform:scale(1);opacity:1}}`}</style>
+        <button
+          onClick={() => setPhase('lobby')}
+          style={{ width: 40, height: 40, borderRadius: 12, background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--text)', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        >
+          ←
+        </button>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 24 }}>
         <div style={{ fontSize: 15, color: 'var(--text-muted)' }}>{game?.emoji} {game?.label}</div>
         <div style={{
           fontFamily: "'Bebas Neue'", fontSize: 140, color: 'var(--amber)',
@@ -243,6 +348,7 @@ export default function BattleRoomPage() {
           key: countdown,
         } as React.CSSProperties}>{countdown}</div>
         <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>준비하세요!</div>
+        </div>
       </main>
     )
   }
@@ -255,7 +361,13 @@ export default function BattleRoomPage() {
     // After submitting my score — show waiting screen
     if (myScore !== null) {
       return (
-        <main className="flex flex-col flex-1 px-6 pt-12 pb-8 gap-6">
+        <main className="flex flex-col flex-1 px-6 pt-8 pb-8 gap-6">
+          <button
+            onClick={() => setPhase('lobby')}
+            style={{ width: 40, height: 40, borderRadius: 12, background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--text)', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          >
+            ←
+          </button>
           <div className="text-center">
             <div style={{ fontSize: 48 }}>⏳</div>
             <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)', marginTop: 8 }}>
@@ -292,6 +404,12 @@ export default function BattleRoomPage() {
           display: 'flex', alignItems: 'center', gap: 8,
           paddingBottom: 8, borderBottom: '1px solid var(--border)',
         }}>
+          <button
+            onClick={() => { handleGameComplete(0) }}
+            style={{ width: 32, height: 32, borderRadius: 10, background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--text)', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+          >
+            ←
+          </button>
           <span style={{ fontSize: 18 }}>{game?.emoji}</span>
           <span style={{ fontSize: 13, color: 'var(--text-muted)', flex: 1 }}>{game?.label}</span>
           <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>
@@ -299,16 +417,23 @@ export default function BattleRoomPage() {
           </span>
         </div>
         <div className="flex flex-col flex-1 items-center justify-start pt-2">
-          {selectedGame === 'nunchi'       && <NunchiGame       onComplete={handleGameComplete} />}
-          {selectedGame === 'threesixnine' && <ThreeSixNineGame onComplete={handleGameComplete} />}
+          {selectedGame === 'nunchi'       && <NunchiGameBattle  onComplete={handleGameComplete} roomCode={code} userId={userId} myName={myName} players={players} isHost={amHost} rounds={selectedRounds} />}
+          {selectedGame === 'threesixnine' && <ThreeSixNineGame  onComplete={handleGameComplete} autoStart rounds={selectedRounds} />}
           {selectedGame === 'choseong'     && (
             <ChoSeongBattle
               onComplete={handleGameComplete}
               roomCode={code}
               userId={userId}
               myName={myName}
+              isHost={amHost}
+              rounds={selectedRounds}
             />
           )}
+          {selectedGame === 'timing'      && <TimingChallenge   onComplete={handleGameComplete} />}
+          {selectedGame === 'liar'        && <LiarGame          onComplete={handleGameComplete} />}
+          {selectedGame === 'balancegame' && <BalanceGame       onComplete={handleGameComplete} />}
+          {selectedGame === 'mindmeld'    && <MindMeldGame      onComplete={handleGameComplete} />}
+          {selectedGame === 'mafia'       && <MafiaGame         onComplete={handleGameComplete} />}
         </div>
       </main>
     )
@@ -322,8 +447,14 @@ export default function BattleRoomPage() {
     const medals = ['🥇', '🥈', '🥉']
 
     return (
-      <main className="flex flex-col flex-1 px-6 pt-10 pb-8 gap-5">
-        <div className="text-center">
+      <main className="flex flex-col flex-1 px-6 pt-8 pb-8 gap-5">
+        <button
+          onClick={() => router.push('/')}
+          style={{ width: 40, height: 40, borderRadius: 12, background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--text)', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        >
+          ←
+        </button>
+        <div className="text-center" style={{ marginTop: 4 }}>
           <div style={{ fontSize: 14, color: 'var(--text-dim)', letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700 }}>
             {GAMES.find(g => g.key === selectedGame)?.label} 결과
           </div>
@@ -361,14 +492,13 @@ export default function BattleRoomPage() {
           ))}
         </div>
 
-        <div style={{ marginTop: 'auto' }}>
-          {amHost ? (
-            <button className="btn-primary" onClick={handleRestart}>
-              다시 하기
-            </button>
-          ) : (
-            <div style={{ textAlign: 'center', fontSize: 13, color: 'var(--text-dim)', padding: '16px 0' }}>
-              방장이 다음 게임을 선택 중...
+        <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <button className="btn-primary" onClick={handleRestart}>
+            🎮 다른 게임하러 가기
+          </button>
+          {amHost && (
+            <div style={{ textAlign: 'center', fontSize: 12, color: 'var(--text-dim)' }}>
+              {resultsCountdown}초 후 전체 자동 이동
             </div>
           )}
         </div>
@@ -380,6 +510,15 @@ export default function BattleRoomPage() {
   const selGame = GAMES.find(g => g.key === selectedGame)!
   return (
     <main className="flex flex-col flex-1 px-6 pt-8 pb-8 gap-5" style={{ overflowY: 'auto' }}>
+      {/* Back button */}
+      <div>
+        <button
+          onClick={() => router.push('/')}
+          style={{ width: 40, height: 40, borderRadius: 12, background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--text)', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        >
+          ←
+        </button>
+      </div>
       {/* Room code banner */}
       <div className="glass p-4 text-center">
         <div style={{ fontSize: 11, color: 'var(--text-dim)', letterSpacing: '0.08em', marginBottom: 2 }}>방 코드</div>

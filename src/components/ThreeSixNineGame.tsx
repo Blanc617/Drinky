@@ -4,10 +4,12 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 
 interface Props {
   onComplete: (score: number) => void
+  autoStart?: boolean
+  rounds?: number
 }
 
 const NUMBERS = Array.from({ length: 15 }, (_, i) => i + 1)
-const TIME_LIMIT = 2.5
+const TIME_LIMIT = 1
 
 function isClap(n: number): boolean {
   return String(n).split('').some(d => ['3', '6', '9'].includes(d))
@@ -16,7 +18,8 @@ function isClap(n: number): boolean {
 type Phase = 'intro' | 'countdown' | 'playing' | 'feedback' | 'result'
 type RoundResult = 'correct' | 'wrong' | 'timeout'
 
-export default function ThreeSixNineGame({ onComplete }: Props) {
+export default function ThreeSixNineGame({ onComplete, autoStart, rounds }: Props) {
+  const playNumbers = NUMBERS.slice(0, rounds ?? NUMBERS.length)
   const [phase, setPhase] = useState<Phase>('intro')
   const [countdown, setCountdown] = useState(3)
   const [roundIdx, setRoundIdx] = useState(0)
@@ -33,7 +36,7 @@ export default function ThreeSixNineGame({ onComplete }: Props) {
 
   const finishGame = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current)
-    const accuracy = (correctRef.current / NUMBERS.length) * 100
+    const accuracy = (correctRef.current / playNumbers.length) * 100
     const avgTime = timesRef.current.length > 0
       ? timesRef.current.reduce((a, b) => a + b, 0) / timesRef.current.length
       : TIME_LIMIT * 1000
@@ -44,7 +47,7 @@ export default function ThreeSixNineGame({ onComplete }: Props) {
   }, [onComplete])
 
   const startRound = useCallback((idx: number) => {
-    if (idx >= NUMBERS.length) { finishGame(); return }
+    if (idx >= playNumbers.length) { finishGame(); return }
     roundIdxRef.current = idx
     setRoundIdx(idx)
     setTappedClap(null)
@@ -103,6 +106,7 @@ export default function ThreeSixNineGame({ onComplete }: Props) {
   }
 
   useEffect(() => () => { if (timerRef.current) clearInterval(timerRef.current) }, [])
+  useEffect(() => { if (autoStart) startCountdown() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── intro ──
   if (phase === 'intro') {
@@ -136,7 +140,7 @@ export default function ThreeSixNineGame({ onComplete }: Props) {
           ))}
         </div>
 
-        <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>제한시간 {TIME_LIMIT}초 · {NUMBERS.length}라운드</div>
+        <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>제한시간 {TIME_LIMIT}초 · {playNumbers.length}라운드</div>
         <button className="btn-primary" onClick={startCountdown}>시작하기</button>
       </div>
     )
@@ -168,7 +172,7 @@ export default function ThreeSixNineGame({ onComplete }: Props) {
           테스트 완료
         </div>
         <div style={{ fontFamily: "'Bebas Neue'", fontSize: 80, color: 'var(--amber)', lineHeight: 1, textShadow: '0 0 30px rgba(245,158,11,0.5)' }}>
-          {correctRef.current}<span style={{ fontSize: 32 }}>/{NUMBERS.length}</span>
+          {correctRef.current}<span style={{ fontSize: 32 }}>/{playNumbers.length}</span>
         </div>
         <div style={{ fontSize: 14, color: 'var(--text-muted)' }}>정답률 {accuracy}%</div>
         <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>결과 저장 중...</div>
@@ -178,7 +182,7 @@ export default function ThreeSixNineGame({ onComplete }: Props) {
 
   // ── playing / feedback ──
   const circumference = 2 * Math.PI * 42
-  const currentNum = NUMBERS[roundIdx]
+  const currentNum = playNumbers[roundIdx]
   const shouldClap = isClap(currentNum)
   const feedbackColor = lastResult === 'correct' ? '#4ade80' : '#ef4444'
 
@@ -243,7 +247,7 @@ export default function ThreeSixNineGame({ onComplete }: Props) {
 
       {/* 라운드 / 정답 카운터 */}
       <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', fontSize: 13, color: 'var(--text-dim)' }}>
-        <span>{roundIdx + 1} / {NUMBERS.length}</span>
+        <span>{roundIdx + 1} / {playNumbers.length}</span>
         <span style={{ color: correctCount > 0 ? '#4ade80' : 'var(--text-dim)' }}>{correctCount} 정답</span>
       </div>
 

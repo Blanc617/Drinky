@@ -16,8 +16,8 @@ function shuffle<T>(arr: T[]): T[] {
   return a
 }
 
-const ROUND_COUNT = 10
-const TIME_LIMIT = 5
+const ROUND_COUNT = 4
+const TIME_LIMIT = 7
 
 type Phase = 'intro' | 'countdown' | 'playing' | 'feedback' | 'result'
 type RoundResult = 'answered' | 'timeout'
