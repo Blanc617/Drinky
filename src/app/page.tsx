@@ -337,12 +337,12 @@ export default function Home() {
               )}
 
               {/* 혼자 플레이 */}
-              <button onClick={handleMeasure} className="btn-primary" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+              <button onClick={handleMeasure} className="btn-primary" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '11px 24px' }}>
                 <span>🧪</span> 혼자 측정하기
               </button>
 
               {/* 대전 모드 */}
-              <button onClick={() => router.push('/test-new')} className="btn-secondary" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+              <button onClick={() => router.push('/test-new')} className="btn-secondary" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '11px 24px' }}>
                 <span>🎮</span> 대전 게임
               </button>
             </div>
