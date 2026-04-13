@@ -337,38 +337,13 @@ export default function Home() {
               )}
 
               {/* 혼자 플레이 */}
-              <button
-                onClick={handleMeasure}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 16,
-                  padding: '20px 24px', borderRadius: 20, cursor: 'pointer',
-                  background: 'linear-gradient(135deg, #f59e0b, #f97316)',
-                  border: 'none', width: '100%', textAlign: 'left',
-                  boxShadow: '0 4px 20px rgba(245,158,11,0.35)',
-                  transition: 'opacity 0.15s ease',
-                }}
-              >
-                <span style={{ fontSize: 28, flexShrink: 0 }}>🧪</span>
-                <span style={{ fontSize: 16, fontWeight: 800, color: '#fff', letterSpacing: '-0.01em' }}>혼자 측정하기</span>
-                <span style={{ marginLeft: 'auto', color: 'rgba(255,255,255,0.6)', fontSize: 20 }}>→</span>
+              <button onClick={handleMeasure} className="btn-primary" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                <span>🧪</span> 혼자 측정하기
               </button>
 
               {/* 대전 모드 */}
-              <button
-                onClick={() => router.push('/test-new')}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 16,
-                  padding: '20px 24px', borderRadius: 20, cursor: 'pointer',
-                  background: 'var(--surface)',
-                  border: '2px solid rgba(139,92,246,0.5)',
-                  width: '100%', textAlign: 'left',
-                  boxShadow: '0 4px 20px rgba(139,92,246,0.15)',
-                  transition: 'opacity 0.15s ease',
-                }}
-              >
-                <span style={{ fontSize: 28, flexShrink: 0 }}>🎮</span>
-                <span style={{ fontSize: 16, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.01em' }}>대전 게임</span>
-                <span style={{ marginLeft: 'auto', color: 'var(--text-dim)', fontSize: 20 }}>→</span>
+              <button onClick={() => router.push('/test-new')} className="btn-secondary" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                <span>🎮</span> 대전 게임
               </button>
             </div>
           ) : (
