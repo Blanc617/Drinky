@@ -199,7 +199,8 @@ export default function MafiaGameBattle({ onComplete, roomCode, userId, myName, 
   // ── discuss timer ──
   useEffect(() => {
     if (phase !== 'day_discuss') return
-    setDiscussTimeLeft(60)
+    const DISCUSS_TIME = Math.max(60, Math.min(180, players.length * 30))
+    setDiscussTimeLeft(DISCUSS_TIME)
     const interval = setInterval(() => {
       setDiscussTimeLeft(prev => {
         if (prev <= 1) {
@@ -626,8 +627,9 @@ export default function MafiaGameBattle({ onComplete, roomCode, userId, myName, 
 
   // ── day_discuss ──
   if (phase === 'day_discuss') {
-    const minutes = Math.floor(discussTimeLeft / 60)
-    const seconds = discussTimeLeft % 60
+    const mins = Math.floor(discussTimeLeft / 60)
+    const secs = discussTimeLeft % 60
+    const timeStr = mins > 0 ? `${mins}:${secs.toString().padStart(2, '0')}` : `${secs}`
     const timerColor = discussTimeLeft <= 10 ? '#ef4444' : discussTimeLeft <= 20 ? '#f97316' : 'var(--text)'
     return (
       <div className="flex flex-col items-center gap-5 text-center w-full">
@@ -635,7 +637,7 @@ export default function MafiaGameBattle({ onComplete, roomCode, userId, myName, 
 
         {/* timer */}
         <div style={{ fontFamily: "'Bebas Neue'", fontSize: 56, color: timerColor, lineHeight: 1, transition: 'color 0.3s' }}>
-          {String(minutes).padStart(2, '0')}:{String(seconds).padStart(2, '0')}
+          {timeStr}
         </div>
 
         {policeResult && (

@@ -255,6 +255,10 @@ export default function ChoSeongBattle({ onComplete, roomCode, userId, myName, i
     <div className="flex flex-col gap-4 w-full">
       <style>{`@keyframes slideIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}`}</style>
 
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.1em', textAlign: 'center' }}>
+        ROUND {qIdx + 1} / {questionsRef.current.length}
+      </div>
+
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>
           {qIdx + 1} / {questionsRef.current.length}
@@ -319,8 +323,12 @@ export default function ChoSeongBattle({ onComplete, roomCode, userId, myName, i
           padding: '12px', borderRadius: 12, textAlign: 'center',
           background: 'var(--surface2)', border: '1px solid var(--border)',
           fontSize: 13, color: 'var(--text-muted)',
+          display: 'flex', flexDirection: 'column', gap: 4,
         }}>
-          제출 완료 ✓ — 다른 플레이어 기다리는 중...
+          <div>제출 완료 ✓ — 다른 플레이어 기다리는 중...</div>
+          <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>
+            남은 시간: {timeLeft}초
+          </div>
         </div>
       )}
 

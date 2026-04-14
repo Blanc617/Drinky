@@ -39,6 +39,7 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
   const [lastResult, setLastResult] = useState<'success' | 'collision' | 'missed' | null>(null)
   const [lastPoints, setLastPoints] = useState(0)
   const [collisionNames, setCollisionNames] = useState<string[]>([])
+  const [showCountdown, setShowCountdown] = useState(0)
 
   const phaseRef        = useRef<Phase>('intro')
   const roundRef        = useRef(0)
@@ -96,6 +97,15 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
     if (phaseRef.current === 'showing') return
     if (timerRef.current) clearInterval(timerRef.current)
     setPhaseSync('showing')
+
+    const showDelaySeconds = Math.round(SHOW_DELAY / 1000)
+    setShowCountdown(showDelaySeconds)
+    let cd = showDelaySeconds
+    const cdInterval = setInterval(() => {
+      cd--
+      setShowCountdown(cd)
+      if (cd <= 0) clearInterval(cdInterval)
+    }, 1000)
 
     const claims = roundClaimsRef.current
     const uniqueClaims = claims
@@ -237,6 +247,9 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
 
   return (
     <div className="flex flex-col items-center gap-5 w-full">
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.1em', textAlign: 'center' }}>
+        ROUND {round + 1} / {totalRounds}
+      </div>
       <style>{`
         @keyframes nunchi-pulse {
           0%, 100% { box-shadow: 0 0 0 0 rgba(245,158,11,0.5), 0 0 12px rgba(245,158,11,0.3); }
@@ -248,7 +261,6 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
       `}</style>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', fontSize: 13 }}>
-        <span style={{ color: 'var(--text-dim)' }}>{round + 1} / {totalRounds}</span>
         <span style={{
           fontFamily: "'Bebas Neue'", fontSize: 28, lineHeight: 1,
           color: timeLeft <= 2 ? '#ef4444' : 'var(--amber)',
@@ -265,6 +277,11 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
         <div style={{ fontSize: 16, fontWeight: 700, color: resultColor, textAlign: 'center' }}>
           {lastResult === 'success' ? `✓ 성공! +${lastPoints}점` :
            lastResult === 'collision' ? collisionLabel : '⏱ 선택 안 함 +0점'}
+        </div>
+      )}
+      {isShowing && (
+        <div style={{ fontSize: 12, color: 'var(--text-dim)', textAlign: 'center' }}>
+          {showCountdown}초 후 다음 라운드
         </div>
       )}
       {!isShowing && (
@@ -343,6 +360,7 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
                   fontSize: 10, fontWeight: 600, textAlign: 'center', lineHeight: 1.3,
                   color: liveIsCollision ? 'rgba(239,68,68,0.9)' : 'rgba(74,222,128,0.9)',
                   overflow: 'hidden', maxWidth: '100%',
+                  textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                 }}>
                   {claimers.map(c => c.userId === userId ? '나' : c.name).join(', ')}
                 </span>
@@ -354,6 +372,7 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
                   fontSize: 10, fontWeight: 600, textAlign: 'center', lineHeight: 1.3,
                   color: isCollision ? '#ef4444' : '#4ade80',
                   overflow: 'hidden', maxWidth: '100%',
+                  textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                 }}>
                   {isCollision ? '💥 ' : '✓ '}
                   {claimers.map(c => c.userId === userId ? '나' : c.name).join(', ')}

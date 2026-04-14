@@ -289,6 +289,10 @@ export default function ThreeSixNineBattle({ onComplete, roomCode, userId, myNam
     >
       <style>{`@keyframes popIn { from { transform: scale(0.5); opacity: 0 } to { transform: scale(1); opacity: 1 } }`}</style>
 
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.1em', textAlign: 'center' }}>
+        ROUND {roundNumRef.current} / {roundsRef.current}
+      </div>
+
       <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', fontSize: 13, color: 'var(--text-dim)' }}>
         <span>틀린 횟수 {totalMistakes} / {rounds}</span>
         <span style={{ color: isMyTurn ? 'var(--amber)' : 'var(--text-muted)', fontWeight: isMyTurn ? 700 : 400 }}>
@@ -311,7 +315,7 @@ export default function ThreeSixNineBattle({ onComplete, roomCode, userId, myNam
           />
         </svg>
         <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: 'var(--text-muted)', fontWeight: 600 }}>
-          {timeLeft.toFixed(1)}
+          {Math.ceil(timeLeft)}
         </div>
       </div>
 

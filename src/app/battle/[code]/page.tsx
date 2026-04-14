@@ -15,7 +15,7 @@ import MafiaGameBattle from '@/components/MafiaGameBattle'
 type GameKey = 'nunchi' | 'threesixnine' | 'choseong' | 'liar' | 'balancegame' | 'mafia'
 type Phase = 'lobby' | 'round_select' | 'countdown' | 'playing' | 'results'
 
-interface Player { userId: string; name: string; isHost: boolean }
+interface Player { userId: string; name: string; isHost: boolean; avatarUrl?: string }
 
 // ── Room state reducer ──────────────────────────────────────────
 interface RoomState {
@@ -97,6 +97,7 @@ export default function BattleRoomPage() {
   const [mounted, setMounted] = useState(false)
   const [needsName, setNeedsName] = useState(false)
   const [nameInput, setNameInput] = useState('')
+  const [myAvatarUrl, setMyAvatarUrl] = useState<string | null>(null)
 
   // Drag UI state (local only, no need for reducer)
   const [orderDragIdx, setOrderDragIdx] = useState<number | null>(null)
@@ -144,6 +145,13 @@ export default function BattleRoomPage() {
     const isHost = sessionStorage.getItem(`battle_host_${code}`) === 'true'
     amHostRef.current = isHost
     setAmHost(isHost)
+
+    // 프로필 사진 가져오기
+    const supabase = createClient()
+    supabase.auth.getUser().then(({ data }) => {
+      setMyAvatarUrl(data.user?.user_metadata?.avatar_url ?? null)
+    })
+
     setMounted(true)
   }, [code])
 
@@ -198,13 +206,14 @@ export default function BattleRoomPage() {
     channelRef.current = channel
 
     function syncPlayers() {
-      const state = channel.presenceState<{ name: string; isHost: boolean }>()
+      const state = channel.presenceState<{ name: string; isHost: boolean; avatarUrl?: string }>()
       const list: Player[] = Object.entries(state)
         .filter(([, arr]) => arr.length > 0)
         .map(([uid, arr]) => ({
           userId: uid,
           name: arr[0].name,
           isHost: arr[0].isHost,
+          avatarUrl: arr[0].avatarUrl,
         }))
       playersRef.current = list
       dispatch({ type: 'SET_PLAYERS', players: [...list] })
@@ -278,7 +287,7 @@ export default function BattleRoomPage() {
         console.log('[Battle] channel status:', status, err ?? '')
         if (status === 'SUBSCRIBED') {
           dispatch({ type: 'SET_CHANNEL_STATUS', status: 'connected' })
-          await channel.track({ name: myName, isHost: amHostRef.current })
+          await channel.track({ name: myName, isHost: amHostRef.current, avatarUrl: myAvatarUrl ?? undefined })
         } else if (status === 'CHANNEL_ERROR') {
           console.error('[Battle] channel error:', err)
           dispatch({ type: 'SET_CHANNEL_STATUS', status: 'error' })
@@ -332,6 +341,28 @@ export default function BattleRoomPage() {
     localStorage.setItem('battle_name', n)
     setMyName(n)
     setNeedsName(false)
+  }
+
+  function Avatar({ player, size = 28 }: { player: Player; size?: number }) {
+    if (player.avatarUrl) {
+      return (
+        <img
+          src={player.avatarUrl}
+          alt={player.name}
+          style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, border: '1px solid var(--border)' }}
+        />
+      )
+    }
+    return (
+      <div style={{
+        width: size, height: size, borderRadius: '50%', flexShrink: 0,
+        background: 'var(--surface2)', border: '1px solid var(--border)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: size * 0.55, lineHeight: 1,
+      }}>
+        {player.isHost ? '👑' : '👤'}
+      </div>
+    )
   }
 
   function handleRestart() {
@@ -748,6 +779,7 @@ export default function BattleRoomPage() {
                 <span style={{ fontSize: 26, width: 32, textAlign: 'center', flexShrink: 0 }}>
                   {medals[i] ?? <span style={{ fontSize: 14, color: 'var(--text-dim)' }}>{i + 1}</span>}
                 </span>
+                <Avatar player={p} size={36} />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>{p.name}</div>
                   {p.userId === userId && <div style={{ fontSize: 11, color: 'var(--amber)' }}>나</div>}
@@ -977,8 +1009,9 @@ export default function BattleRoomPage() {
           )}
           {players.map(p => (
             <div key={p.userId} className="glass p-3" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 16 }}>{p.isHost ? '👑' : '👤'}</span>
+              <Avatar player={p} size={28} />
               <span style={{ fontSize: 14, color: 'var(--text)', flex: 1 }}>{p.name}</span>
+              {p.isHost && <span style={{ fontSize: 11, color: 'var(--amber)' }}>👑</span>}
               {p.userId === userId && (
                 <span style={{ fontSize: 11, color: 'var(--amber)', fontWeight: 700 }}>나</span>
               )}

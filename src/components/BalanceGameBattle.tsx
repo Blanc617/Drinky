@@ -15,28 +15,16 @@ interface Props {
   rounds: number
 }
 
-type Phase = 'setup' | 'waiting' | 'voting' | 'reveal'
-
-interface CustomQuestion {
-  id: string
-  emoji: string
-  a: string
-  b: string
-}
+type Phase = 'waiting' | 'voting' | 'reveal'
 
 export default function BalanceGameBattle({ onComplete, roomCode, userId, players, isHost, rounds }: Props) {
-  const [phase, setPhase] = useState<Phase>(isHost ? 'setup' : 'waiting')
+  const [phase, setPhase] = useState<Phase>('waiting')
   const [questions, setQuestions] = useState<typeof ALL_QUESTIONS>([])
   const [questionIdx, setQuestionIdx] = useState(0)
   const [myVote, setMyVote] = useState<'A' | 'B' | null>(null)
   const [voteMap, setVoteMap] = useState<Record<string, 'A' | 'B'>>({})
   const [majorityScore, setMajorityScore] = useState(0)
-
-  // Setup phase state
-  const [customQuestions, setCustomQuestions] = useState<CustomQuestion[]>([])
-  const [newEmoji, setNewEmoji] = useState('')
-  const [newA, setNewA] = useState('')
-  const [newB, setNewB] = useState('')
+  const [nextCountdown, setNextCountdown] = useState<number | null>(null)
 
   const channelRef = useRef<RealtimeChannel | null>(null)
   const voteMapRef = useRef<Record<string, 'A' | 'B'>>({})
@@ -67,14 +55,22 @@ export default function BalanceGameBattle({ onComplete, roomCode, userId, player
         }
       }
       if (isHostRef.current) {
-        nextTimerRef.current = setTimeout(() => {
-          const nextIdx = questionIdxRef.current + 1
-          if (nextIdx >= questionsRef.current.length) {
-            channelRef.current?.send({ type: 'broadcast', event: 'bg_done', payload: {} })
-          } else {
-            channelRef.current?.send({ type: 'broadcast', event: 'bg_next', payload: { questionIdx: nextIdx } })
+        setNextCountdown(4)
+        let remaining = 4
+        const intervalId = setInterval(() => {
+          remaining -= 1
+          setNextCountdown(remaining)
+          if (remaining <= 0) {
+            clearInterval(intervalId)
+            const nextIdx = questionIdxRef.current + 1
+            if (nextIdx >= questionsRef.current.length) {
+              channelRef.current?.send({ type: 'broadcast', event: 'bg_done', payload: {} })
+            } else {
+              channelRef.current?.send({ type: 'broadcast', event: 'bg_next', payload: { questionIdx: nextIdx } })
+            }
           }
-        }, 4000)
+        }, 1000)
+        nextTimerRef.current = intervalId
       }
     }
   }
@@ -104,7 +100,8 @@ export default function BalanceGameBattle({ onComplete, roomCode, userId, player
         checkReveal()
       })
       .on('broadcast', { event: 'bg_next' }, ({ payload }) => {
-        if (nextTimerRef.current) clearTimeout(nextTimerRef.current)
+        if (nextTimerRef.current) clearInterval(nextTimerRef.current)
+        setNextCountdown(null)
         const nextIdx = payload.questionIdx as number
         questionIdxRef.current = nextIdx
         setQuestionIdx(nextIdx)
@@ -116,14 +113,14 @@ export default function BalanceGameBattle({ onComplete, roomCode, userId, player
       .on('broadcast', { event: 'bg_done' }, () => {
         if (finishedRef.current) return
         finishedRef.current = true
-        if (nextTimerRef.current) clearTimeout(nextTimerRef.current)
-        const score = Math.round((majorityScoreRef.current / questionsRef.current.length) * 100)
-        onComplete(score)
+        if (nextTimerRef.current) clearInterval(nextTimerRef.current)
+        setNextCountdown(null)
+        onComplete(majorityScoreRef.current)
       })
       .subscribe()
 
     return () => {
-      if (nextTimerRef.current) clearTimeout(nextTimerRef.current)
+      if (nextTimerRef.current) clearInterval(nextTimerRef.current)
       supabase.removeChannel(channel)
     }
   }, [roomCode]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -134,28 +131,15 @@ export default function BalanceGameBattle({ onComplete, roomCode, userId, player
     channelRef.current?.send({ type: 'broadcast', event: 'bg_vote', payload: { userId, vote, questionIdx: questionIdxRef.current } })
   }
 
-  function addCustomQuestion() {
-    const emoji = newEmoji.trim() || '❓'
-    const a = newA.trim()
-    const b = newB.trim()
-    if (!a || !b) return
-    setCustomQuestions(prev => [...prev, { id: crypto.randomUUID(), emoji, a, b }])
-    setNewEmoji('')
-    setNewA('')
-    setNewB('')
-  }
-
-  function removeCustomQuestion(id: string) {
-    setCustomQuestions(prev => prev.filter(cq => cq.id !== id))
-  }
-
-  function startGame() {
-    const customQs = customQuestions.map(({ emoji, a, b }) => ({ emoji, a, b }))
-    const remaining = Math.max(0, rounds - customQs.length)
-    const defaultQs = shuffle(ALL_QUESTIONS).slice(0, remaining)
-    const qs = [...customQs, ...defaultQs]
-    channelRef.current?.send({ type: 'broadcast', event: 'bg_init', payload: { questions: qs } })
-  }
+  useEffect(() => {
+    if (!isHost) return
+    // 방장이 채널 구독 완료 후 자동 시작
+    const timer = setTimeout(() => {
+      const qs = shuffle(ALL_QUESTIONS).slice(0, rounds)
+      channelRef.current?.send({ type: 'broadcast', event: 'bg_init', payload: { questions: qs } })
+    }, 800)
+    return () => clearTimeout(timer)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const q = questions[questionIdx]
   const aCount = Object.values(voteMap).filter(v => v === 'A').length
@@ -163,99 +147,13 @@ export default function BalanceGameBattle({ onComplete, roomCode, userId, player
   const totalVoted = Object.keys(voteMap).length
   const minority: 'A' | 'B' | 'tie' = aCount < bCount ? 'A' : bCount < aCount ? 'B' : 'tie'
 
-  // Setup phase — host configures the game
-  if (phase === 'setup' && isHost) {
-    const canAdd = newA.trim().length > 0 && newB.trim().length > 0
-    return (
-      <div className="flex flex-col gap-4 w-full">
-        <style>{`
-          @keyframes fadeUp { from { transform: translateY(10px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
-        `}</style>
-
-        <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', textAlign: 'center' }}>⚙️ 게임 설정</div>
-
-        {/* Default questions info */}
-        <div style={{ padding: '12px 16px', borderRadius: 14, background: 'rgba(232,137,12,0.08)', border: '1px solid rgba(232,137,12,0.25)', fontSize: 13, color: 'var(--amber)', fontWeight: 600, textAlign: 'center' }}>
-          기본 {ALL_QUESTIONS.length}개 문항 중 {Math.max(0, rounds - customQuestions.length)}개 사용
-          {customQuestions.length > 0 && ` (커스텀 ${customQuestions.length}개 우선 포함)`}
-        </div>
-
-        {/* Custom question input */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '14px 16px', borderRadius: 16, background: 'var(--surface)', border: '1px solid var(--border)' }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.06em' }}>커스텀 문항 추가</div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input
-              value={newEmoji}
-              onChange={e => setNewEmoji(e.target.value)}
-              placeholder="😀"
-              maxLength={2}
-              style={{ width: 52, flexShrink: 0, padding: '8px 10px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--surface2)', color: 'var(--text)', fontSize: 18, textAlign: 'center', outline: 'none' }}
-            />
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <input
-                value={newA}
-                onChange={e => setNewA(e.target.value)}
-                placeholder="A 선택지"
-                style={{ width: '100%', padding: '8px 12px', borderRadius: 10, border: '1px solid rgba(96,165,250,0.4)', background: 'rgba(96,165,250,0.06)', color: 'var(--text)', fontSize: 13, outline: 'none' }}
-              />
-              <input
-                value={newB}
-                onChange={e => setNewB(e.target.value)}
-                placeholder="B 선택지"
-                onKeyDown={e => e.key === 'Enter' && addCustomQuestion()}
-                style={{ width: '100%', padding: '8px 12px', borderRadius: 10, border: '1px solid rgba(251,146,60,0.4)', background: 'rgba(251,146,60,0.06)', color: 'var(--text)', fontSize: 13, outline: 'none' }}
-              />
-            </div>
-          </div>
-          <button
-            onClick={addCustomQuestion}
-            disabled={!canAdd}
-            style={{ padding: '9px', borderRadius: 10, border: 'none', background: canAdd ? 'var(--amber)' : 'var(--surface2)', color: canAdd ? '#000' : 'var(--text-dim)', fontWeight: 700, fontSize: 13, cursor: canAdd ? 'pointer' : 'default', transition: 'all 0.15s' }}
-          >
-            + 추가
-          </button>
-        </div>
-
-        {/* Custom questions list */}
-        {customQuestions.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.06em' }}>추가된 커스텀 문항 ({customQuestions.length}개)</div>
-            {customQuestions.map(cq => (
-              <div key={cq.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 12, background: 'var(--surface)', border: '1px solid var(--border)', animation: 'fadeUp 0.2s ease' }}>
-                <span style={{ fontSize: 20, flexShrink: 0 }}>{cq.emoji}</span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12, color: '#60a5fa', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>A: {cq.a}</div>
-                  <div style={{ fontSize: 12, color: '#fb923c', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>B: {cq.b}</div>
-                </div>
-                <button
-                  onClick={() => removeCustomQuestion(cq.id)}
-                  style={{ flexShrink: 0, padding: '4px 8px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-dim)', fontSize: 12, cursor: 'pointer' }}
-                >
-                  삭제
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Start button */}
-        <button
-          onClick={startGame}
-          style={{ marginTop: 4, padding: '14px', borderRadius: 16, border: 'none', background: 'var(--amber)', color: '#000', fontWeight: 800, fontSize: 16, cursor: 'pointer', letterSpacing: '0.02em' }}
-        >
-          게임 시작 🚀
-        </button>
-      </div>
-    )
-  }
-
-  // Waiting / setup (non-host) screen
-  if (phase === 'setup' || phase === 'waiting' || !q) {
+  // Waiting screen
+  if (phase === 'waiting' || !q) {
     return (
       <div className="flex flex-col items-center justify-center gap-4" style={{ minHeight: 200 }}>
         <div style={{ fontSize: 32 }}>⚖️</div>
         <div style={{ fontSize: 14, color: 'var(--text-muted)', fontWeight: 600, textAlign: 'center' }}>
-          {phase === 'setup' || phase === 'waiting' ? '방장이 게임을 설정하는 중...' : '게임 준비 중...'}
+          게임 준비 중...
         </div>
       </div>
     )
@@ -268,9 +166,12 @@ export default function BalanceGameBattle({ onComplete, roomCode, userId, player
         @keyframes popIn { from { transform: scale(0.5); opacity: 0 } to { transform: scale(1); opacity: 1 } }
       `}</style>
 
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.1em', textAlign: 'center' }}>
+        ROUND {questionIdx + 1} / {questions.length}
+      </div>
+
       {/* Progress header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', fontSize: 13, color: 'var(--text-dim)' }}>
-        <span>{questionIdx + 1} / {questions.length}</span>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', width: '100%', fontSize: 13, color: 'var(--text-dim)' }}>
         {phase === 'voting' && <span>{totalVoted}/{players.length} 투표 완료</span>}
         {phase === 'reveal' && <span style={{ color: '#4ade80' }}>결과 공개</span>}
       </div>
@@ -289,6 +190,9 @@ export default function BalanceGameBattle({ onComplete, roomCode, userId, player
         <>
           <div style={{ fontSize: 14, color: 'var(--text-muted)', fontWeight: 600, textAlign: 'center' }}>
             {myVote ? '투표 완료! 다른 플레이어 기다리는 중...' : '하나를 선택하세요'}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-dim)', textAlign: 'center' }}>
+            소수 선택 시 🍺 벌칙
           </div>
 
           {(['A', 'B'] as const).map(side => {
@@ -400,9 +304,11 @@ export default function BalanceGameBattle({ onComplete, roomCode, userId, player
             </div>
           )}
 
-          <div style={{ fontSize: 12, color: 'var(--text-dim)', textAlign: 'center' }}>
-            {questionIdx + 1 < questions.length ? '잠시 후 다음 질문으로...' : '게임 마무리 중...'}
-          </div>
+          {nextCountdown !== null && (
+            <div style={{ fontSize: 12, color: 'var(--text-dim)', textAlign: 'center' }}>
+              {nextCountdown > 0 ? `다음 질문까지 ${nextCountdown}초` : '다음 질문으로 이동 중...'}
+            </div>
+          )}
         </>
       )}
     </div>

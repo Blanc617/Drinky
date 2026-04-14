@@ -67,6 +67,10 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
   const [voteMap, setVoteMap] = useState<Record<string, string>>({})
   const [myVote, setMyVote] = useState<string | null>(null)
   const [liarRevealed, setLiarRevealed] = useState(false)
+  const [myTapped, setMyTapped] = useState(false)
+  const [tapCount, setTapCount] = useState(0)
+  const [revealCountdown, setRevealCountdown] = useState<number | null>(null)
+  const tapCountRef = useRef(0)
 
   // Drumroll reveal animation states
   const [drumrolling, setDrumrolling] = useState(false)
@@ -89,6 +93,13 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
 
   isHostRef.current = isHost
   playerCountRef.current = players.length
+
+  // 공개 시점에 승자 계산
+  useEffect(() => {
+    if (liarRevealed) {
+      computeWinner(liarUserId, voteMapRef.current)
+    }
+  }, [liarRevealed]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const isLiar = userId === liarUserId
   // Clamped discuss time: minimum 1 min, maximum 3 min
@@ -173,6 +184,28 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
         setLiarRevealed(false)
         setPhase('reveal')
       })
+      .on('broadcast', { event: 'liar_tap' }, () => {
+        tapCountRef.current += 1
+        setTapCount(tapCountRef.current)
+        if (isHostRef.current && tapCountRef.current >= playerCountRef.current) {
+          // 전원 탭 완료 → 2초 후 동시 공개
+          let cd = 2
+          setRevealCountdown(cd)
+          const cdInterval = setInterval(() => {
+            cd--
+            if (cd <= 0) {
+              clearInterval(cdInterval)
+              setRevealCountdown(null)
+              channelRef.current?.send({ type: 'broadcast', event: 'liar_reveal_show', payload: {} })
+            } else {
+              setRevealCountdown(cd)
+            }
+          }, 1000)
+        }
+      })
+      .on('broadcast', { event: 'liar_reveal_show' }, () => {
+        setLiarRevealed(true)
+      })
       .on('broadcast', { event: 'liar_next_round' }, ({ payload }: { payload: { round: number } }) => {
         setCurrentRound(payload.round)
         setPhase('waiting')
@@ -186,6 +219,10 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
         setMyVote(null)
         voteMapRef.current = {}
         setLiarRevealed(false)
+        setMyTapped(false)
+        setTapCount(0)
+        tapCountRef.current = 0
+        setRevealCountdown(null)
         setDrumrolling(false)
         setDrumrollCount(0)
         setLiarWon(null)
@@ -230,39 +267,27 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
     })
   }
 
-  function handleRevealTap(currentLiarUserId: string, currentVoteMap: Record<string, string>) {
-    if (drumrolling || liarRevealed) return
-    setDrumrolling(true)
-    setDrumrollCount(0)
+  function handleRevealTap() {
+    if (myTapped || liarRevealed) return
+    setMyTapped(true)
+    channelRef.current?.send({ type: 'broadcast', event: 'liar_tap', payload: {} })
+  }
 
-    let count = 0
-    const interval = setInterval(() => {
-      count++
-      setDrumrollCount(count)
-      if (count >= 3) {
-        clearInterval(interval)
-        setDrumrolling(false)
-        setLiarRevealed(true)
-
-        // Compute winner based on votes
-        const tally: Record<string, number> = {}
-        for (const target of Object.values(currentVoteMap)) {
-          tally[target] = (tally[target] ?? 0) + 1
-        }
-        let accusedId = ''
-        let maxVotesFound = 0
-        for (const [uid, votes] of Object.entries(tally)) {
-          if (votes > maxVotesFound) {
-            maxVotesFound = votes
-            accusedId = uid
-          }
-        }
-        const accusedIsLiar = accusedId === currentLiarUserId
-        // If accused IS the liar → civilians win (liarWon = false)
-        // If accused is NOT the liar → liar escapes (liarWon = true)
-        setLiarWon(!accusedIsLiar)
+  function computeWinner(currentLiarUserId: string, currentVoteMap: Record<string, string>) {
+    const tally: Record<string, number> = {}
+    for (const target of Object.values(currentVoteMap)) {
+      tally[target] = (tally[target] ?? 0) + 1
+    }
+    let accusedId = ''
+    let maxVotesFound = 0
+    for (const [uid, votes] of Object.entries(tally)) {
+      if (votes > maxVotesFound) {
+        maxVotesFound = votes
+        accusedId = uid
       }
-    }, 1000)
+    }
+    const accusedIsLiar = accusedId === currentLiarUserId
+    setLiarWon(!accusedIsLiar)
   }
 
   function handleLiarGuessSubmit() {
@@ -301,11 +326,18 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
     }
   }
 
+  const RoundBadge = rounds > 1 ? (
+    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.1em', textAlign: 'center' }}>
+      ROUND {currentRound} / {rounds}
+    </div>
+  ) : null
+
   // ── waiting ──
   if (phase === 'waiting') {
     const catKeys = ['랜덤', ...Object.keys(CATEGORIES)]
     return (
       <div className="flex flex-col items-center gap-8 text-center w-full">
+        {RoundBadge}
         <div>
           <div style={{ fontSize: 52, marginBottom: 4, lineHeight: 1 }}>🤥</div>
           <div style={{
@@ -352,6 +384,7 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
   if (phase === 'dealing') {
     return (
       <div className="flex flex-col items-center gap-6 text-center w-full">
+        {RoundBadge}
         <style>{`
           @keyframes flipIn {
             from { transform: perspective(600px) rotateY(-90deg); opacity: 0 }
@@ -455,6 +488,7 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
 
     return (
       <div className="flex flex-col items-center gap-6 text-center w-full">
+        {RoundBadge}
         <div>
           <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--text)' }}>토론 중</div>
           <p style={{ color: 'var(--text-muted)', fontSize: 14, marginTop: 4, lineHeight: 1.6 }}>
@@ -489,6 +523,12 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
             <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>남음</span>
           </div>
         </div>
+
+        {timeLeft <= 10 && timeLeft > 0 && (
+          <div style={{ fontSize: 13, color: '#f59e0b', fontWeight: 700, animation: 'pulse 0.8s ease-in-out infinite' }}>
+            ⚠️ 곧 투표가 시작됩니다!
+          </div>
+        )}
 
         <div className="glass p-4 w-full flex flex-col gap-3" style={{ textAlign: 'left' }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.06em' }}>발언 순서</div>
@@ -545,6 +585,7 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
     return (
       <div className="flex flex-col items-center gap-6 text-center w-full">
         <style>{`@keyframes popIn { from { transform: scale(0.5); opacity: 0 } to { transform: scale(1); opacity: 1 } }`}</style>
+        {RoundBadge}
         <div>
           <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--text)' }}>라이어 투표</div>
           <p style={{ color: 'var(--text-muted)', fontSize: 14, marginTop: 4 }}>
@@ -622,6 +663,7 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
 
   return (
     <div className="flex flex-col items-center gap-5 text-center w-full" style={{ overflowY: 'auto', paddingBottom: 8 }}>
+      {RoundBadge}
       <style>{`
         @keyframes popIn { from { transform: scale(0.5); opacity: 0 } to { transform: scale(1); opacity: 1 } }
         @keyframes fadeUp { from { transform: translateY(20px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
@@ -669,31 +711,37 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
 
       {!liarRevealed ? (
         <>
-          {drumrolling ? (
+          {revealCountdown !== null ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '16px 0' }}>
-              <div style={{ fontSize: 40, animation: 'pulse 0.6s ease-in-out infinite' }}>🥁</div>
-              <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--amber)' }}>
-                라이어는 바로<span style={{ display: 'inline-block', minWidth: 28 }}>{dots}</span>
-              </div>
+              <div style={{ fontSize: 48, fontFamily: "'Bebas Neue'", color: 'var(--amber)', lineHeight: 1 }}>{revealCountdown}</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>잠시 후 공개됩니다!</div>
             </div>
           ) : (
             <>
               <p style={{ fontSize: 13, color: 'var(--text-dim)', margin: 0 }}>
-                탭해서 라이어를 공개하세요
+                {myTapped ? '다른 플레이어를 기다리는 중...' : '탭해서 라이어를 공개하세요'}
               </p>
               <button
-                onClick={() => handleRevealTap(liarUserId, voteMap)}
+                onClick={handleRevealTap}
+                disabled={myTapped}
                 style={{
                   width: 120, height: 120, borderRadius: 24,
-                  background: 'var(--surface2)', border: '1px solid var(--border)',
+                  background: myTapped ? 'var(--surface)' : 'var(--surface2)',
+                  border: myTapped ? '1px solid var(--border)' : '1px solid var(--amber)',
                   display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                  gap: 6, cursor: 'pointer', fontSize: 40,
-                  transition: 'transform 0.15s ease',
+                  gap: 6, cursor: myTapped ? 'default' : 'pointer', fontSize: 40,
+                  opacity: myTapped ? 0.5 : 1,
+                  transition: 'all 0.2s ease',
                 }}
               >
                 🤥
-                <span style={{ fontSize: 12, color: 'var(--text-dim)', fontWeight: 600 }}>탭해서 공개</span>
+                <span style={{ fontSize: 12, color: myTapped ? 'var(--text-dim)' : 'var(--amber)', fontWeight: 600 }}>
+                  {myTapped ? '완료' : '탭해서 공개'}
+                </span>
               </button>
+              <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>
+                {tapCount} / {players.length}명 준비 완료
+              </div>
             </>
           )}
         </>
@@ -851,16 +899,19 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
             )
           })()}
 
-          <button
-            onClick={handleRoundComplete}
-            style={{
-              width: '100%', padding: '12px 0', borderRadius: 12,
-              background: 'transparent', border: '1px solid var(--border)',
-              color: 'var(--text-muted)', fontSize: 15, fontWeight: 600, cursor: 'pointer',
-            }}
-          >
-            {currentRound < rounds ? `다음 라운드 (${currentRound}/${rounds})` : '완료'}
-          </button>
+          {isHost ? (
+            <button
+              onClick={handleRoundComplete}
+              className="btn-primary"
+              style={{ marginTop: 24, ...(currentRound < rounds ? { background: 'var(--amber)', color: '#1a1410' } : {}) }}
+            >
+              {currentRound < rounds ? `${currentRound + 1}라운드 시작하기` : '완료'}
+            </button>
+          ) : (
+            <div style={{ textAlign: 'center', fontSize: 13, color: 'var(--text-dim)', padding: '12px 0', marginTop: 24 }}>
+              {currentRound < rounds ? '방장이 다음 라운드를 시작할 때까지 기다려 주세요' : '방장이 완료를 누를 때까지 기다려 주세요'}
+            </div>
+          )}
         </div>
       )}
     </div>
