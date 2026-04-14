@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { shuffle } from '@/lib/utils'
 
 interface Props {
   onComplete: (score: number) => void
@@ -16,14 +17,6 @@ interface Slot { status: SlotStatus; botIdx?: number }
 type Phase = 'intro' | 'countdown' | 'playing' | 'feedback' | 'result'
 type RoundResult = 'success' | 'collision' | 'fail'
 
-function shuffle<T>(arr: T[]): T[] {
-  const a = [...arr]
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[a[i], a[j]] = [a[j], a[i]]
-  }
-  return a
-}
 
 export default function NunchiGame({ onComplete }: Props) {
   const [phase, setPhase] = useState<Phase>('intro')

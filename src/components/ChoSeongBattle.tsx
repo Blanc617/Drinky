@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Q, QUESTION_POOL } from './choSeongQuestions'
+import { Q, QUESTION_POOL, POOL_2, POOL_3 } from './choSeongQuestions'
+import { shuffle } from '@/lib/utils'
 
 interface Props {
   onComplete: (score: number) => void
@@ -17,6 +18,8 @@ const ROUND_COUNT = 4
 const ROUND_TIME = 7
 const SHOW_DELAY = 3000
 
+type Difficulty = '2글자' | '3글자' | '섞기'
+
 interface AnswerEntry {
   userId: string
   name: string
@@ -25,16 +28,10 @@ interface AnswerEntry {
   ts: number
 }
 
-function shuffle<T>(arr: T[]): T[] {
-  const a = [...arr]
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]]
-  }
-  return a
-}
 
 export default function ChoSeongBattle({ onComplete, roomCode, userId, myName, isHost, rounds }: Props) {
+  const [hostSetup, setHostSetup] = useState(isHost)
+  const [difficulty, setDifficulty] = useState<Difficulty>('섞기')
   const [ready, setReady] = useState(false)
   const [qIdx, setQIdx] = useState(0)
   const [phase, setPhase] = useState<'playing' | 'showing'>('playing')
@@ -82,6 +79,20 @@ export default function ChoSeongBattle({ onComplete, roomCode, userId, myName, i
       event: 'cs_answer',
       payload: { qIdx: qIdxRef.current, userId, name: myName, word, ts: Date.now() },
     })
+  }
+
+  function handleHostStart() {
+    const pool =
+      difficulty === '2글자' ? POOL_2
+      : difficulty === '3글자' ? POOL_3
+      : QUESTION_POOL
+    const questions = shuffle(pool).slice(0, rounds ?? ROUND_COUNT)
+    channelRef.current?.send({
+      type: 'broadcast',
+      event: 'cs_init',
+      payload: { questions },
+    })
+    setHostSetup(false)
   }
 
   useEffect(() => {
@@ -153,23 +164,66 @@ export default function ChoSeongBattle({ onComplete, roomCode, userId, myName, i
         answersRef.current = [...answersRef.current, entry]
         setAnswers([...answersRef.current])
       })
-      .subscribe(async (status) => {
-        if (status === 'SUBSCRIBED' && isHost) {
-          // 방장이 구독 완료 후 랜덤 문제를 골라 broadcast
-          const questions = shuffle(QUESTION_POOL).slice(0, rounds ?? ROUND_COUNT)
-          await channel.send({
-            type: 'broadcast',
-            event: 'cs_init',
-            payload: { questions },
-          })
-        }
-      })
+      .subscribe()
 
     return () => {
       if (timerRef.current) clearInterval(timerRef.current)
       channel.unsubscribe()
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Setup phase ────────────────────────────────────────────────
+  if (hostSetup) {
+    const diffOptions: Difficulty[] = ['2글자', '3글자', '섞기']
+    return (
+      <div className="flex flex-col gap-5 w-full" style={{ minHeight: 200 }}>
+        <div style={{ textAlign: 'center', fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>
+          난이도 선택
+        </div>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+          {diffOptions.map((d) => (
+            <button
+              key={d}
+              onPointerDown={() => setDifficulty(d)}
+              style={{
+                padding: '10px 22px',
+                borderRadius: 12,
+                fontSize: 14,
+                fontWeight: 700,
+                border: difficulty === d ? '2px solid var(--amber)' : '2px solid var(--border)',
+                background: difficulty === d ? 'rgba(245,158,11,0.15)' : 'var(--surface2)',
+                color: difficulty === d ? 'var(--amber)' : 'var(--text-muted)',
+                cursor: 'pointer',
+                transition: 'all 0.15s',
+              }}
+            >
+              {d}
+            </button>
+          ))}
+        </div>
+        <div style={{ textAlign: 'center', fontSize: 12, color: 'var(--text-dim)' }}>
+          {difficulty === '2글자' && `${POOL_2.length}개 문제 풀`}
+          {difficulty === '3글자' && `${POOL_3.length}개 문제 풀`}
+          {difficulty === '섞기' && `${QUESTION_POOL.length}개 문제 풀 (2·3글자 혼합)`}
+        </div>
+        <button
+          onPointerDown={handleHostStart}
+          className="btn-primary"
+          style={{ width: '100%', padding: '13px', borderRadius: 14, fontSize: 15 }}
+        >
+          게임 시작
+        </button>
+      </div>
+    )
+  }
+
+  if (!isHost && !ready) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3" style={{ minHeight: 200 }}>
+        <div style={{ fontSize: 14, color: 'var(--text-muted)' }}>방장이 난이도를 설정하는 중...</div>
+      </div>
+    )
+  }
 
   if (!ready) {
     return (
@@ -182,6 +236,20 @@ export default function ChoSeongBattle({ onComplete, roomCode, userId, myName, i
   const q = questionsRef.current[qIdx]
   const medals = ['🥇', '🥈', '🥉']
   const isShowing = phase === 'showing'
+
+  // ── Duplicate detection ────────────────────────────────────────
+  const wordCounts: Record<string, number> = {}
+  for (const a of answers) {
+    wordCounts[a.word] = (wordCounts[a.word] ?? 0) + 1
+  }
+
+  // ── Most common word stat ──────────────────────────────────────
+  let topWord: string | null = null
+  let topCount = 0
+  for (const [word, count] of Object.entries(wordCounts)) {
+    if (count > topCount) { topCount = count; topWord = word }
+  }
+  const showTopStat = isShowing && topWord !== null && topCount >= 2
 
   return (
     <div className="flex flex-col gap-4 w-full">
@@ -266,26 +334,49 @@ export default function ChoSeongBattle({ onComplete, roomCode, userId, myName, i
             아직 제출 없음...
           </div>
         )}
-        {answers.map((a) => (
-          <div
-            key={`${a.userId}-${a.ts}`}
-            className="glass p-3"
-            style={{
-              display: 'flex', alignItems: 'center', gap: 10,
-              border: a.userId === userId ? '1px solid var(--amber)' : '1px solid var(--border)',
-              animation: 'slideIn 0.2s ease',
-            }}
-          >
-            <span style={{ fontSize: 22, width: 34, textAlign: 'center', flexShrink: 0 }}>
-              {medals[a.rank - 1] ?? `${a.rank}위`}
-            </span>
-            <span style={{ flex: 1, fontSize: 14, color: 'var(--text)', fontWeight: a.userId === userId ? 700 : 400 }}>
-              {a.name}{a.userId === userId ? ' (나)' : ''}
-            </span>
-            <span style={{ fontSize: 17, fontWeight: 700, color: 'var(--amber)' }}>{a.word}</span>
-          </div>
-        ))}
+        {answers.map((a) => {
+          const isDuplicate = wordCounts[a.word] >= 2
+          return (
+            <div
+              key={`${a.userId}-${a.ts}`}
+              className="glass p-3"
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                border: a.userId === userId ? '1px solid var(--amber)' : '1px solid var(--border)',
+                animation: 'slideIn 0.2s ease',
+              }}
+            >
+              <span style={{ fontSize: 22, width: 34, textAlign: 'center', flexShrink: 0 }}>
+                {medals[a.rank - 1] ?? `${a.rank}위`}
+              </span>
+              <span style={{ flex: 1, fontSize: 14, color: 'var(--text)', fontWeight: a.userId === userId ? 700 : 400 }}>
+                {a.name}{a.userId === userId ? ' (나)' : ''}
+              </span>
+              <span style={{ fontSize: 17, fontWeight: 700, color: 'var(--amber)' }}>{a.word}</span>
+              {isDuplicate && (
+                <span style={{
+                  fontSize: 10, fontWeight: 700, padding: '2px 6px',
+                  borderRadius: 6, background: 'rgba(245,158,11,0.18)',
+                  color: 'var(--amber)', border: '1px solid rgba(245,158,11,0.4)',
+                  flexShrink: 0,
+                }}>
+                  💬 중복
+                </span>
+              )}
+            </div>
+          )
+        })}
       </div>
+
+      {showTopStat && (
+        <div style={{
+          textAlign: 'center', fontSize: 13, color: 'var(--text-muted)',
+          padding: '6px 10px', borderRadius: 10,
+          background: 'var(--surface2)', border: '1px solid var(--border)',
+        }}>
+          🏆 최다 답변: &lsquo;{topWord}&rsquo; ({topCount}명)
+        </div>
+      )}
 
       {isShowing && (
         <div style={{ textAlign: 'center', fontSize: 14, color: 'var(--amber)', fontWeight: 600, padding: '4px 0' }}>

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
+import { shuffle } from '@/lib/utils'
 
 interface Props { onComplete: (score: number) => void }
 
@@ -168,14 +169,6 @@ export const ALL_QUESTIONS: Question[] = [
   { emoji: '🌊', a: '해수욕장에서 파도에 수영복 끈이 풀림', b: '물놀이 하다가 콘택트렌즈가 빠져버림' },
 ]
 
-function shuffle<T>(arr: T[]): T[] {
-  const a = [...arr]
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[a[i], a[j]] = [a[j], a[i]]
-  }
-  return a
-}
 
 const ROUNDS_PER_GAME = 10
 type Phase = 'setup' | 'voting' | 'reveal'

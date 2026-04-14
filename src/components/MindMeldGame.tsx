@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { shuffle } from '@/lib/utils'
 
 interface Props { onComplete: (score: number) => void }
 
@@ -133,14 +134,6 @@ const ALL_TOPICS: Topic[] = [
   { emoji: '🏆', text: '상 하면 제일 먼저 떠오르는 것은?' },
 ]
 
-function shuffle<T>(arr: T[]): T[] {
-  const a = [...arr]
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[a[i], a[j]] = [a[j], a[i]]
-  }
-  return a
-}
 
 const ROUNDS = 8
 type Phase = 'intro' | 'topic' | 'countdown' | 'p1_input' | 'p2_input' | 'reveal' | 'result'

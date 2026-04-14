@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useCallback } from 'react'
+import { shuffle } from '@/lib/utils'
 
 interface Props {
   onComplete: (score: number) => void
@@ -37,9 +38,6 @@ const ALL_QUESTIONS = [
   { country: '탄자니아', capital: '도도마', wrong: ['다르에스살람', '잔지바르', '아루샤'] },
 ]
 
-function shuffle<T>(arr: T[]): T[] {
-  return [...arr].sort(() => Math.random() - 0.5)
-}
 
 function pickQuestions(n: number) {
   return shuffle(ALL_QUESTIONS).slice(0, n).map(q => ({

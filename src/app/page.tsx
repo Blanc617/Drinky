@@ -114,7 +114,7 @@ export default function Home() {
       if (data.user) {
         const { data: baseline } = await supabase
           .from('measurements').select('id').eq('user_id', data.user.id)
-          .eq('type', 'baseline').limit(1).single()
+          .eq('type', 'baseline').limit(1).maybeSingle()
         setHasBaseline(!!baseline)
       }
       setLoading(false)
@@ -336,14 +336,14 @@ export default function Home() {
                 </div>
               )}
 
-              {/* 혼자 플레이 */}
-              <button onClick={handleMeasure} className="btn-primary" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '11px 24px' }}>
-                <span>🧪</span> 혼자 측정하기
+              {/* 대전 모드 */}
+              <button onClick={() => router.push('/battle')} className="btn-primary" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '11px 24px' }}>
+                <span>🎮</span> 대전 모드
               </button>
 
-              {/* 대전 모드 */}
-              <button onClick={() => router.push('/battle')} className="btn-secondary" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '11px 24px' }}>
-                <span>🎮</span> 대전 게임
+              {/* 혼자 플레이 */}
+              <button onClick={handleMeasure} className="btn-secondary" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '11px 24px' }}>
+                <span>🧪</span> 혼자 측정하기
               </button>
             </div>
           ) : (

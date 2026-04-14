@@ -30,15 +30,21 @@ export default function ResultPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    supabase.from('measurements').select('*').eq('id', params.id).single()
-      .then(({ data, error }) => {
-        if (error) {
-          console.error('결과 불러오기 실패:', error)
-          setError('결과를 불러오지 못했습니다.')
-        } else {
-          setData(data)
-        }
-      })
+    const id = Array.isArray(params.id) ? params.id[0] : params.id
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) { router.push('/'); return }
+      supabase.from('measurements').select('*')
+        .eq('id', id)
+        .eq('user_id', user.id)
+        .single()
+        .then(({ data, error }) => {
+          if (error) {
+            setError('결과를 불러오지 못했습니다.')
+          } else {
+            setData(data)
+          }
+        })
+    })
   }, [params.id])
 
   if (error) {

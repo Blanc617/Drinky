@@ -14,7 +14,9 @@ export default function BattleLobbyPage() {
   const [name, setName] = useState('')
   const [joinCode, setJoinCode] = useState('')
   const [mode, setMode] = useState<'select' | 'join'>('select')
+  const [nameError, setNameError] = useState(false)
   const codeInputRef = useRef<HTMLInputElement>(null)
+  const nameInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (mode === 'join') {
@@ -22,19 +24,28 @@ export default function BattleLobbyPage() {
     }
   }, [mode])
 
+  function requireName(): boolean {
+    if (!name.trim()) {
+      setNameError(true)
+      nameInputRef.current?.focus()
+      return false
+    }
+    return true
+  }
+
   function handleCreate() {
-    if (!name.trim()) return
+    if (!requireName()) return
     const code = generateCode()
-    sessionStorage.setItem('battle_name', name.trim())
+    localStorage.setItem('battle_name', name.trim())
     sessionStorage.setItem(`battle_host_${code}`, 'true')
     router.push(`/battle/${code}`)
   }
 
   function handleJoin() {
-    if (!name.trim()) return
+    if (!requireName()) return
     const code = joinCode.trim()
     if (code.length < 4) return
-    sessionStorage.setItem('battle_name', name.trim())
+    localStorage.setItem('battle_name', name.trim())
     router.push(`/battle/${code}`)
   }
 
@@ -67,12 +78,18 @@ export default function BattleLobbyPage() {
         <div>
           <label style={labelStyle}>닉네임</label>
           <input
+            ref={nameInputRef}
             value={name}
-            onChange={e => setName(e.target.value)}
+            onChange={e => { setName(e.target.value); if (e.target.value.trim()) setNameError(false) }}
             placeholder="이름을 입력하세요"
             maxLength={10}
-            style={inputStyle}
+            style={{ ...inputStyle, ...(nameError ? { border: '1.5px solid #ef4444' } : {}) }}
           />
+          {nameError && (
+            <div style={{ marginTop: 6, fontSize: 12, color: '#ef4444', fontWeight: 500 }}>
+              닉네임을 입력하세요
+            </div>
+          )}
         </div>
         {mode === 'join' && (
           <div>
@@ -93,10 +110,10 @@ export default function BattleLobbyPage() {
 
       {mode === 'select' ? (
         <div className="flex flex-col gap-3 w-full">
-          <button className="btn-primary" onClick={handleCreate} disabled={!name.trim()}>
+          <button className="btn-primary" onClick={handleCreate}>
             방 만들기
           </button>
-          <button className="btn-secondary" onClick={() => setMode('join')} disabled={!name.trim()}>
+          <button className="btn-secondary" onClick={() => { if (!requireName()) return; setMode('join') }}>
             코드로 입장
           </button>
         </div>

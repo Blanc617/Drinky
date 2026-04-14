@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useReducer } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { RealtimeChannel } from '@supabase/supabase-js'
@@ -16,6 +16,65 @@ type GameKey = 'nunchi' | 'threesixnine' | 'choseong' | 'liar' | 'balancegame' |
 type Phase = 'lobby' | 'round_select' | 'countdown' | 'playing' | 'results'
 
 interface Player { userId: string; name: string; isHost: boolean }
+
+// ── Room state reducer ──────────────────────────────────────────
+interface RoomState {
+  phase: Phase
+  players: Player[]
+  selectedGame: GameKey
+  selectedRounds: number
+  playerOrder: string[]
+  countdown: number
+  doneMap: Record<string, number>
+  myScore: number | null
+  resultsCountdown: number
+  channelStatus: string
+}
+
+type RoomAction =
+  | { type: 'SET_PHASE';            phase: Phase }
+  | { type: 'SET_PLAYERS';          players: Player[] }
+  | { type: 'SET_GAME';             game: GameKey }
+  | { type: 'SET_ROUNDS';           rounds: number }
+  | { type: 'SET_PLAYER_ORDER';     order: string[] }
+  | { type: 'SET_COUNTDOWN';        countdown: number }
+  | { type: 'SET_DONE_MAP';         doneMap: Record<string, number> }
+  | { type: 'SET_MY_SCORE';         score: number | null }
+  | { type: 'SET_RESULTS_COUNTDOWN';countdown: number }
+  | { type: 'SET_CHANNEL_STATUS';   status: string }
+  | { type: 'GAME_INIT';            game: GameKey; rounds: number; order: string[] }
+  | { type: 'RESTART' }
+
+const initialRoomState: RoomState = {
+  phase: 'lobby',
+  players: [],
+  selectedGame: 'nunchi',
+  selectedRounds: 5,
+  playerOrder: [],
+  countdown: 3,
+  doneMap: {},
+  myScore: null,
+  resultsCountdown: 5,
+  channelStatus: 'connecting',
+}
+
+function roomReducer(state: RoomState, action: RoomAction): RoomState {
+  switch (action.type) {
+    case 'SET_PHASE':            return { ...state, phase: action.phase }
+    case 'SET_PLAYERS':          return { ...state, players: action.players }
+    case 'SET_GAME':             return { ...state, selectedGame: action.game }
+    case 'SET_ROUNDS':           return { ...state, selectedRounds: action.rounds }
+    case 'SET_PLAYER_ORDER':     return { ...state, playerOrder: action.order }
+    case 'SET_COUNTDOWN':        return { ...state, countdown: action.countdown }
+    case 'SET_DONE_MAP':         return { ...state, doneMap: action.doneMap }
+    case 'SET_MY_SCORE':         return { ...state, myScore: action.score }
+    case 'SET_RESULTS_COUNTDOWN':return { ...state, resultsCountdown: action.countdown }
+    case 'SET_CHANNEL_STATUS':   return { ...state, channelStatus: action.status }
+    case 'GAME_INIT':            return { ...state, selectedGame: action.game, selectedRounds: action.rounds, playerOrder: action.order, doneMap: {}, myScore: null }
+    case 'RESTART':              return { ...state, phase: 'lobby', doneMap: {}, myScore: null }
+    default:                     return state
+  }
+}
 
 const GAMES: { key: GameKey; emoji: string; label: string }[] = [
   { key: 'nunchi',       emoji: '👀', label: '눈치게임' },
@@ -39,19 +98,14 @@ export default function BattleRoomPage() {
   const [needsName, setNeedsName] = useState(false)
   const [nameInput, setNameInput] = useState('')
 
-  // Room state
-  const [phase, setPhase] = useState<Phase>('lobby')
-  const [players, setPlayers] = useState<Player[]>([])
-  const [selectedGame, setSelectedGame] = useState<GameKey>('nunchi')
-  const [selectedRounds, setSelectedRounds] = useState(5)
-  const [playerOrder, setPlayerOrder] = useState<string[]>([])
-  const [countdown, setCountdown] = useState(3)
-  const [doneMap, setDoneMap] = useState<Record<string, number>>({})
-  const [myScore, setMyScore] = useState<number | null>(null)
-  const [resultsCountdown, setResultsCountdown] = useState(5)
-  const [channelStatus, setChannelStatus] = useState<string>('connecting')
+  // Drag UI state (local only, no need for reducer)
   const [orderDragIdx, setOrderDragIdx] = useState<number | null>(null)
   const [orderDragOver, setOrderDragOver] = useState<number | null>(null)
+  const [confirmExit, setConfirmExit] = useState(false)
+
+  // Room state
+  const [room, dispatch] = useReducer(roomReducer, initialRoomState)
+  const { phase, players, selectedGame, selectedRounds, playerOrder, countdown, doneMap, myScore, resultsCountdown, channelStatus } = room
   const orderListRef = useRef<HTMLDivElement>(null)
 
   // Stable refs (avoid stale closures in channel callbacks)
@@ -68,7 +122,9 @@ export default function BattleRoomPage() {
   const userIdRef           = useRef('')
   const amHostRef           = useRef(false)
 
-  // ── Mount: read identity from sessionStorage ──
+  // ── Mount: read identity ──
+  // battle_userId / battle_host_CODE: sessionStorage (탭별 독립 → 같은 기기 다탭 지원)
+  // battle_name: localStorage (탭 닫아도 이름 기억)
   useEffect(() => {
     let id = sessionStorage.getItem('battle_userId')
     if (!id) {
@@ -78,7 +134,7 @@ export default function BattleRoomPage() {
     userIdRef.current = id
     setUserId(id)
 
-    const name = sessionStorage.getItem('battle_name')
+    const name = localStorage.getItem('battle_name')
     if (name) {
       setMyName(name)
     } else {
@@ -96,7 +152,7 @@ export default function BattleRoomPage() {
     const doneCount = Object.keys(doneMapRef.current).length
     if (startedCountRef.current > 0 && doneCount >= startedCountRef.current) {
       if (autoFinishRef.current) clearTimeout(autoFinishRef.current)
-      setTimeout(() => setPhase('results'), 1500)
+      setTimeout(() => dispatch({ type: 'SET_PHASE', phase: 'results' }), 1500)
     }
   }, [])
 
@@ -109,11 +165,11 @@ export default function BattleRoomPage() {
       }
       return
     }
-    setResultsCountdown(5)
+    dispatch({ type: 'SET_RESULTS_COUNTDOWN', countdown: 5 })
     let c = 5
     resultsCdIntervalRef.current = setInterval(() => {
       c--
-      setResultsCountdown(c)
+      dispatch({ type: 'SET_RESULTS_COUNTDOWN', countdown: c })
       if (c <= 0) {
         clearInterval(resultsCdIntervalRef.current!)
         resultsCdIntervalRef.current = null
@@ -131,7 +187,7 @@ export default function BattleRoomPage() {
   useEffect(() => {
     if (!userId || !myName) return
 
-    setChannelStatus('connecting')
+    dispatch({ type: 'SET_CHANNEL_STATUS', status: 'connecting' })
     const supabase = createClient()
     const channel = supabase.channel(`battle:${code}`, {
       config: {
@@ -151,7 +207,7 @@ export default function BattleRoomPage() {
           isHost: arr[0].isHost,
         }))
       playersRef.current = list
-      setPlayers([...list])
+      dispatch({ type: 'SET_PLAYERS', players: [...list] })
     }
 
     channel
@@ -160,83 +216,76 @@ export default function BattleRoomPage() {
       .on('presence', { event: 'leave' }, syncPlayers)
       .on('broadcast', { event: 'game_select' }, ({ payload }) => {
         selectedGameRef.current = payload.gameKey
-        setSelectedGame(payload.gameKey)
+        dispatch({ type: 'SET_GAME', game: payload.gameKey })
       })
       .on('broadcast', { event: 'round_select' }, ({ payload }) => {
         selectedGameRef.current = payload.gameKey
-        setSelectedGame(payload.gameKey)
         const order = playersRef.current.map(p => p.userId)
         playerOrderRef.current = order
-        setPlayerOrder(order)
-        setPhase('round_select')
+        dispatch({ type: 'SET_GAME', game: payload.gameKey })
+        dispatch({ type: 'SET_PLAYER_ORDER', order })
+        dispatch({ type: 'SET_PHASE', phase: 'round_select' })
       })
       .on('broadcast', { event: 'cancel_round_select' }, () => {
-        setPhase('lobby')
+        dispatch({ type: 'SET_PHASE', phase: 'lobby' })
       })
       .on('broadcast', { event: 'start' }, ({ payload }) => {
-        // Clear previous game state
         doneMapRef.current = {}
-        setDoneMap({})
-        setMyScore(null)
         selectedGameRef.current = payload.gameKey
-        setSelectedGame(payload.gameKey)
         startedCountRef.current = playersRef.current.length
         const rounds: number = payload.rounds ?? 5
         selectedRoundsRef.current = rounds
-        setSelectedRounds(rounds)
         const order: string[] = payload.playerOrder ?? playersRef.current.map((p: Player) => p.userId)
         playerOrderRef.current = order
-        setPlayerOrder(order)
+        dispatch({ type: 'GAME_INIT', game: payload.gameKey, rounds, order })
 
         // 라이어 게임은 자체 카운트다운이 있으므로 바로 playing으로
         if (payload.gameKey === 'liar') {
-          setPhase('playing')
-          autoFinishRef.current = setTimeout(() => setPhase('results'), 600_000)
+          dispatch({ type: 'SET_PHASE', phase: 'playing' })
+          autoFinishRef.current = setTimeout(() => dispatch({ type: 'SET_PHASE', phase: 'results' }), 600_000)
           return
         }
 
         // 절대 시각 기준 카운트다운 — 모든 클라이언트가 동일 시점에 게임 시작
         const startAt: number = payload.startAt ?? Date.now() + 4000
-        setPhase('countdown')
+        dispatch({ type: 'SET_PHASE', phase: 'countdown' })
         if (cdIntervalRef.current) clearInterval(cdIntervalRef.current)
 
         cdIntervalRef.current = setInterval(() => {
           const remaining = Math.ceil((startAt - Date.now()) / 1000)
           if (remaining > 0) {
-            setCountdown(remaining)
+            dispatch({ type: 'SET_COUNTDOWN', countdown: remaining })
           } else {
             clearInterval(cdIntervalRef.current!)
             cdIntervalRef.current = null
-            setPhase('playing')
-            autoFinishRef.current = setTimeout(() => setPhase('results'), 120_000)
+            dispatch({ type: 'SET_PHASE', phase: 'playing' })
+            autoFinishRef.current = setTimeout(() => dispatch({ type: 'SET_PHASE', phase: 'results' }), 120_000)
           }
         }, 100)
       })
       .on('broadcast', { event: 'player_done' }, ({ payload }) => {
         const { userId: doneId, score } = payload as { userId: string; score: number }
         doneMapRef.current = { ...doneMapRef.current, [doneId]: score }
-        setDoneMap({ ...doneMapRef.current })
+        dispatch({ type: 'SET_DONE_MAP', doneMap: { ...doneMapRef.current } })
         checkAllDone()
       })
       .on('broadcast', { event: 'restart' }, () => {
         if (autoFinishRef.current) clearTimeout(autoFinishRef.current)
         doneMapRef.current = {}
-        setDoneMap({})
-        setMyScore(null)
-        setPhase('lobby')
+        dispatch({ type: 'RESTART' })
       })
       .subscribe(async (status, err) => {
         console.log('[Battle] channel status:', status, err ?? '')
         if (status === 'SUBSCRIBED') {
-          setChannelStatus('connected')
-          await channel.track({ name: myName, isHost: amHost })
+          dispatch({ type: 'SET_CHANNEL_STATUS', status: 'connected' })
+          await channel.track({ name: myName, isHost: amHostRef.current })
         } else if (status === 'CHANNEL_ERROR') {
           console.error('[Battle] channel error:', err)
-          setChannelStatus('error')
+          dispatch({ type: 'SET_CHANNEL_STATUS', status: 'error' })
         } else if (status === 'TIMED_OUT') {
-          setChannelStatus('timeout')
+          dispatch({ type: 'SET_CHANNEL_STATUS', status: 'timeout' })
         } else if (status === 'CLOSED') {
-          setChannelStatus('closed')
+          dispatch({ type: 'SET_CHANNEL_STATUS', status: 'closed' })
         }
       })
 
@@ -246,12 +295,12 @@ export default function BattleRoomPage() {
       if (resultsCdIntervalRef.current) clearInterval(resultsCdIntervalRef.current)
       supabase.removeChannel(channel)
     }
-  }, [userId, myName, amHost, code, checkAllDone])
+  }, [userId, myName, code, checkAllDone])
 
   // ── Actions ──
   function handleSelectGame(key: GameKey) {
     if (!amHost) return
-    setSelectedGame(key)
+    dispatch({ type: 'SET_GAME', game: key })
     selectedGameRef.current = key
     channelRef.current?.send({ type: 'broadcast', event: 'game_select', payload: { gameKey: key } })
   }
@@ -264,23 +313,23 @@ export default function BattleRoomPage() {
   function handleConfirmRounds(n: number) {
     if (!amHost) return
     selectedRoundsRef.current = n
-    setSelectedRounds(n)
+    dispatch({ type: 'SET_ROUNDS', rounds: n })
     const startAt = Date.now() + 4000
     channelRef.current?.send({ type: 'broadcast', event: 'start', payload: { gameKey: selectedGame, startAt, rounds: n, playerOrder: playerOrderRef.current } })
   }
 
   function handleGameComplete(score: number) {
-    setMyScore(score)
+    dispatch({ type: 'SET_MY_SCORE', score })
     const uid = userIdRef.current
     doneMapRef.current = { ...doneMapRef.current, [uid]: score }
-    setDoneMap({ ...doneMapRef.current })
+    dispatch({ type: 'SET_DONE_MAP', doneMap: { ...doneMapRef.current } })
     channelRef.current?.send({ type: 'broadcast', event: 'player_done', payload: { userId: uid, score } })
     checkAllDone()
   }
 
   function handleNameSubmit() {
     const n = nameInput.trim() || '익명'
-    sessionStorage.setItem('battle_name', n)
+    localStorage.setItem('battle_name', n)
     setMyName(n)
     setNeedsName(false)
   }
@@ -295,10 +344,22 @@ export default function BattleRoomPage() {
     } else {
       // 비방장은 자기 화면만 로비로 이동 (방장 카운트다운이 만료되면 어차피 전체 이동)
       doneMapRef.current = {}
-      setDoneMap({})
-      setMyScore(null)
-      setPhase('lobby')
+      dispatch({ type: 'RESTART' })
     }
+  }
+
+  function handleSameGame() {
+    if (!amHost) return
+    if (resultsCdIntervalRef.current) {
+      clearInterval(resultsCdIntervalRef.current)
+      resultsCdIntervalRef.current = null
+    }
+    const gameKey = selectedGameRef.current
+    channelRef.current?.send({
+      type: 'broadcast',
+      event: 'round_select',
+      payload: { gameKey },
+    })
   }
 
   // ── Renders ──
@@ -351,7 +412,7 @@ export default function BattleRoomPage() {
       if (amHost) {
         channelRef.current?.send({ type: 'broadcast', event: 'cancel_round_select', payload: {} })
       } else {
-        setPhase('lobby')
+        dispatch({ type: 'SET_PHASE', phase: 'lobby' })
       }
     }
     return (
@@ -375,7 +436,7 @@ export default function BattleRoomPage() {
               {[1,2,3,4,5,6,7,8,9,10].map(n => (
                 <button
                   key={n}
-                  onClick={() => setSelectedRounds(n)}
+                  onClick={() => dispatch({ type: 'SET_ROUNDS', rounds: n })}
                   style={{
                     padding: '14px 0',
                     borderRadius: 14,
@@ -404,7 +465,7 @@ export default function BattleRoomPage() {
                     onClick={() => {
                       const shuffled = [...playerOrder].sort(() => Math.random() - 0.5)
                       playerOrderRef.current = shuffled
-                      setPlayerOrder(shuffled)
+                      dispatch({ type: 'SET_PLAYER_ORDER', order: shuffled })
                     }}
                     style={{ fontSize: 12, padding: '4px 10px', borderRadius: 8, background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--text-muted)' }}
                   >🔀 랜덤</button>
@@ -453,7 +514,7 @@ export default function BattleRoomPage() {
                             const [moved] = next.splice(orderDragIdx, 1)
                             next.splice(orderDragOver, 0, moved)
                             playerOrderRef.current = next
-                            setPlayerOrder(next)
+                            dispatch({ type: 'SET_PLAYER_ORDER', order: next })
                           }
                           setOrderDragIdx(null)
                           setOrderDragOver(null)
@@ -500,7 +561,7 @@ export default function BattleRoomPage() {
       <main className="flex flex-col flex-1 px-6 pt-8 pb-8">
         <style>{`@keyframes popIn{from{transform:scale(0.4);opacity:0}to{transform:scale(1);opacity:1}}`}</style>
         <button
-          onClick={() => setPhase('lobby')}
+          onClick={() => dispatch({ type: 'SET_PHASE', phase: 'lobby' })}
           style={{ width: 40, height: 40, borderRadius: 12, background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--text)', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
         >
           ←
@@ -529,7 +590,7 @@ export default function BattleRoomPage() {
       return (
         <main className="flex flex-col flex-1 px-6 pt-8 pb-8 gap-6">
           <button
-            onClick={() => setPhase('lobby')}
+            onClick={() => dispatch({ type: 'SET_PHASE', phase: 'lobby' })}
             style={{ width: 40, height: 40, borderRadius: 12, background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--text)', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           >
             ←
@@ -566,12 +627,39 @@ export default function BattleRoomPage() {
     // Playing the game
     return (
       <main className="flex flex-col flex-1 px-4 pt-4 pb-4 gap-3">
+        {confirmExit && (
+          <div style={{
+            position: 'fixed', inset: 0, zIndex: 999,
+            background: 'rgba(0,0,0,0.7)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '0 24px',
+          }}>
+            <div className="glass p-6" style={{ width: '100%', maxWidth: 320, borderRadius: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--text)', textAlign: 'center' }}>정말 나가시겠어요?</div>
+              <div style={{ fontSize: 13, color: 'var(--text-dim)', textAlign: 'center' }}>게임에서 나가면 0점 처리됩니다.</div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button
+                  onClick={() => setConfirmExit(false)}
+                  style={{ flex: 1, height: 44, borderRadius: 12, background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontSize: 15, cursor: 'pointer', fontWeight: 600 }}
+                >
+                  취소
+                </button>
+                <button
+                  onClick={() => { setConfirmExit(false); handleGameComplete(0) }}
+                  style={{ flex: 1, height: 44, borderRadius: 12, background: '#ef4444', border: 'none', color: '#fff', fontSize: 15, cursor: 'pointer', fontWeight: 700 }}
+                >
+                  나가기
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         <div style={{
           display: 'flex', alignItems: 'center', gap: 8,
           paddingBottom: 8, borderBottom: '1px solid var(--border)',
         }}>
           <button
-            onClick={() => { handleGameComplete(0) }}
+            onClick={() => setConfirmExit(true)}
             style={{ width: 32, height: 32, borderRadius: 10, background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--text)', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
           >
             ←
@@ -595,7 +683,7 @@ export default function BattleRoomPage() {
               rounds={selectedRounds}
             />
           )}
-          {selectedGame === 'liar'        && <LiarGameBattle    onComplete={handleGameComplete} roomCode={code} userId={userId} myName={myName} players={players} isHost={amHost} />}
+          {selectedGame === 'liar'        && <LiarGameBattle    onComplete={handleGameComplete} roomCode={code} userId={userId} myName={myName} players={players} isHost={amHost} rounds={selectedRounds} />}
           {selectedGame === 'balancegame' && <BalanceGameBattle onComplete={handleGameComplete} roomCode={code} userId={userId} players={players} isHost={amHost} rounds={selectedRounds} />}
           {selectedGame === 'mafia'       && <MafiaGameBattle    onComplete={handleGameComplete} roomCode={code} userId={userId} myName={myName} players={players} isHost={amHost} />}
         </div>
@@ -605,16 +693,33 @@ export default function BattleRoomPage() {
 
   // ── Results ──
   if (phase === 'results') {
+    const is369 = selectedGame === 'threesixnine'
+
+    function decode369(score: number) {
+      const mistakes = 9999 - Math.floor(score / 10000)
+      const correct = score % 10000
+      return { correct, mistakes }
+    }
+
+    type RoundStat = { roundNum: number; perPlayer: Record<string, { correct: number; mistakes: number }> }
+    let roundStats: RoundStat[] = []
+    if (is369) {
+      try {
+        const raw = sessionStorage.getItem(`369_stats_${code}`)
+        if (raw) roundStats = JSON.parse(raw)
+      } catch {}
+    }
+
     const sorted = players
       .map(p => ({ ...p, score: doneMap[p.userId] ?? null }))
       .sort((a, b) => (b.score ?? -1) - (a.score ?? -1))
     const medals = ['🥇', '🥈', '🥉']
 
     return (
-      <main className="flex flex-col flex-1 px-6 pt-8 pb-8 gap-5">
+      <main className="flex flex-col flex-1 px-6 pt-8 pb-8 gap-5" style={{ overflowY: 'auto' }}>
         <button
           onClick={() => router.push('/')}
-          style={{ width: 40, height: 40, borderRadius: 12, background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--text)', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          style={{ width: 40, height: 40, borderRadius: 12, background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--text)', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
         >
           ←
         </button>
@@ -624,39 +729,110 @@ export default function BattleRoomPage() {
           </div>
         </div>
 
-        <div className="flex flex-col gap-3">
-          {sorted.map((p, i) => (
-            <div
-              key={p.userId}
-              className="glass p-4"
-              style={{
-                display: 'flex', alignItems: 'center', gap: 14,
-                border: p.userId === userId ? '1px solid var(--amber)' : '1px solid var(--border)',
-                background: i === 0 ? 'rgba(245,158,11,0.06)' : 'var(--surface)',
-              }}
-            >
-              <span style={{ fontSize: 26, width: 32, textAlign: 'center', flexShrink: 0 }}>
-                {medals[i] ?? <span style={{ fontSize: 14, color: 'var(--text-dim)' }}>{i + 1}</span>}
-              </span>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>{p.name}</div>
-                {p.userId === userId && <div style={{ fontSize: 11, color: 'var(--amber)' }}>나</div>}
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{
-                  fontFamily: "'Bebas Neue'", fontSize: 30,
-                  color: i === 0 ? 'var(--amber)' : 'var(--text-muted)',
-                  lineHeight: 1,
-                }}>
-                  {p.score ?? '-'}
+        {/* 전체 순위 */}
+        <div>
+          <div style={{ fontSize: 12, color: 'var(--text-dim)', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10 }}>
+            🏆 전체 순위
+          </div>
+          <div className="flex flex-col gap-3">
+            {sorted.map((p, i) => (
+              <div
+                key={p.userId}
+                className="glass p-4"
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 14,
+                  border: p.userId === userId ? '1px solid var(--amber)' : '1px solid var(--border)',
+                  background: i === 0 ? 'rgba(245,158,11,0.06)' : 'var(--surface)',
+                }}
+              >
+                <span style={{ fontSize: 26, width: 32, textAlign: 'center', flexShrink: 0 }}>
+                  {medals[i] ?? <span style={{ fontSize: 14, color: 'var(--text-dim)' }}>{i + 1}</span>}
+                </span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>{p.name}</div>
+                  {p.userId === userId && <div style={{ fontSize: 11, color: 'var(--amber)' }}>나</div>}
                 </div>
-                <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>점</div>
+                <div style={{ textAlign: 'right' }}>
+                  {is369 && p.score !== null ? (() => {
+                    const { correct, mistakes } = decode369(p.score)
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: i === 0 ? 'var(--amber)' : 'var(--text)', lineHeight: 1 }}>
+                          <span style={{ color: '#4ade80' }}>정답 {correct}</span>
+                          <span style={{ color: 'var(--text-dim)', margin: '0 4px' }}>·</span>
+                          <span style={{ color: mistakes > 0 ? '#ef4444' : 'var(--text-dim)' }}>오답 {mistakes}</span>
+                        </div>
+                      </div>
+                    )
+                  })() : (
+                    <>
+                      <div style={{
+                        fontFamily: "'Bebas Neue'", fontSize: 30,
+                        color: i === 0 ? 'var(--amber)' : 'var(--text-muted)',
+                        lineHeight: 1,
+                      }}>
+                        {p.score ?? '-'}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>점</div>
+                    </>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
 
-        <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {/* 369 라운드별 기록 */}
+        {is369 && roundStats.length > 0 && (
+          <div>
+            <div style={{ fontSize: 12, color: 'var(--text-dim)', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10 }}>
+              📋 라운드별 기록
+            </div>
+            <div className="flex flex-col gap-3">
+              {roundStats.map((round) => {
+                const roundSorted = players
+                  .map(p => ({ ...p, stat: round.perPlayer[p.userId] ?? { correct: 0, mistakes: 0 } }))
+                  .sort((a, b) => a.stat.mistakes - b.stat.mistakes || b.stat.correct - a.stat.correct)
+                return (
+                  <div key={round.roundNum} className="glass p-4">
+                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--amber)', marginBottom: 10 }}>
+                      라운드 {round.roundNum}
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      {roundSorted.map((p, i) => (
+                        <div key={p.userId} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <span style={{ fontSize: 12, color: 'var(--text-dim)', minWidth: 16, textAlign: 'right' }}>{i + 1}</span>
+                          <span style={{
+                            flex: 1, fontSize: 14,
+                            fontWeight: p.userId === userId ? 700 : 400,
+                            color: p.userId === userId ? 'var(--amber)' : 'var(--text)',
+                          }}>
+                            {p.name}
+                          </span>
+                          <span style={{ fontSize: 13, color: '#4ade80', fontWeight: 600 }}>정답 {p.stat.correct}</span>
+                          {p.stat.mistakes > 0 && (
+                            <span style={{ fontSize: 12, color: '#ef4444', fontWeight: 600 }}>💀 오답</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 4 }}>
+          {amHost && (
+            <button
+              className="btn-primary"
+              onClick={handleSameGame}
+              style={{ background: '#fff', color: '#000' }}
+            >
+              🔄 같은 게임 한 판 더
+            </button>
+          )}
           <button className="btn-primary" onClick={handleRestart}>
             🎮 다른 게임하러 가기
           </button>
@@ -683,6 +859,97 @@ export default function BattleRoomPage() {
           ←
         </button>
       </div>
+      {/* Logo + Wordmark */}
+      <style>{`
+        @keyframes bFloat {
+          0%, 100% { transform: translateY(0) rotate(-10deg); }
+          50%       { transform: translateY(-6px) rotate(-10deg); }
+        }
+        @keyframes bGlowPulse {
+          0%, 100% { opacity: 0.35; transform: translate(-50%, -50%) scale(1); }
+          50%       { opacity: 0.6;  transform: translate(-50%, -50%) scale(1.08); }
+        }
+        .b-bottle-float { animation: bFloat 3.2s ease-in-out infinite; }
+        .b-glow-behind  { animation: bGlowPulse 3.2s ease-in-out infinite; }
+      `}</style>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, paddingBottom: 4 }}>
+        <div style={{ position: 'relative', width: 36, height: 50 }}>
+          <div className="b-glow-behind" style={{
+            position: 'absolute',
+            width: 90, height: 90,
+            borderRadius: '50%',
+            background: 'radial-gradient(circle, rgba(34,197,94,0.22) 0%, transparent 68%)',
+            top: '50%', left: '50%',
+            pointerEvents: 'none',
+          }}/>
+          <div className="b-bottle-float" style={{ filter: 'drop-shadow(0 6px 14px rgba(34,197,94,0.45))' }}>
+        <svg width="36" height="50" viewBox="0 0 80 110" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="bCapGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#166534"/>
+              <stop offset="100%" stopColor="#14532d"/>
+            </linearGradient>
+            <linearGradient id="bBottleGrad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor="#86efac"/>
+              <stop offset="60%" stopColor="#22c55e"/>
+              <stop offset="100%" stopColor="#16a34a"/>
+            </linearGradient>
+            <linearGradient id="bLiquidGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#22c55e" stopOpacity="0.7"/>
+              <stop offset="100%" stopColor="#14532d" stopOpacity="0.95"/>
+            </linearGradient>
+            <linearGradient id="bShineGrad" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor="rgba(255,255,255,0.35)"/>
+              <stop offset="100%" stopColor="rgba(255,255,255,0)"/>
+            </linearGradient>
+            <clipPath id="bBodyClip">
+              <path d="M32 32 C32 32 16 40 15 50 L15 96 Q15 101 20 101 L60 101 Q65 101 65 96 L65 50 C64 40 48 32 48 32 Z"/>
+            </clipPath>
+            <filter id="bSoftGlow" x="-20%" y="-20%" width="140%" height="140%">
+              <feGaussianBlur stdDeviation="3" result="blur"/>
+              <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+          </defs>
+          <rect x="29" y="3" width="22" height="12" rx="4" fill="url(#bCapGrad)"/>
+          <rect x="31" y="5" width="18" height="3" rx="1.5" fill="rgba(255,255,255,0.15)"/>
+          <rect x="30" y="14" width="20" height="20" rx="3" fill="url(#bBottleGrad)"/>
+          <rect x="32" y="15" width="6" height="14" rx="3" fill="url(#bShineGrad)"/>
+          <path d="M32 32 C32 32 16 40 15 50 L15 96 Q15 101 20 101 L60 101 Q65 101 65 96 L65 50 C64 40 48 32 48 32 Z" fill="url(#bBottleGrad)"/>
+          <rect x="15" y="64" width="50" height="37" clipPath="url(#bBodyClip)" fill="url(#bLiquidGrad)"/>
+          <path d="M15 64 Q28 60 40 64 Q52 68 65 64" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" fill="none" clipPath="url(#bBodyClip)"/>
+          <rect x="20" y="62" width="40" height="28" rx="5" fill="rgba(0,0,0,0.18)"/>
+          <rect x="20" y="62" width="40" height="28" rx="5" stroke="rgba(255,255,255,0.12)" strokeWidth="1"/>
+          <circle cx="31" cy="73" r="3" fill="white"/>
+          <circle cx="49" cy="73" r="3" fill="white"/>
+          <circle cx="32" cy="73.8" r="1.5" fill="#1a0800"/>
+          <circle cx="50" cy="73.8" r="1.5" fill="#1a0800"/>
+          <circle cx="32.8" cy="72.5" r="0.6" fill="white"/>
+          <circle cx="50.8" cy="72.5" r="0.6" fill="white"/>
+          <path d="M30 80 Q40 87 50 80" stroke="white" strokeWidth="2" strokeLinecap="round" fill="none"/>
+          <ellipse cx="25" cy="78" rx="4" ry="2.5" fill="rgba(255,100,80,0.3)"/>
+          <ellipse cx="55" cy="78" rx="4" ry="2.5" fill="rgba(255,100,80,0.3)"/>
+          <path d="M33 36 C32 42 31 52 33 62" stroke="rgba(255,255,255,0.4)" strokeWidth="3.5" strokeLinecap="round"/>
+          <circle cx="70" cy="78" r="3.5" fill="rgba(34,197,94,0.35)" filter="url(#bSoftGlow)"/>
+          <circle cx="74" cy="65" r="2.5" fill="rgba(34,197,94,0.25)"/>
+          <circle cx="71" cy="53" r="1.8" fill="rgba(34,197,94,0.18)"/>
+          <circle cx="9"  cy="72" r="2.5" fill="rgba(34,197,94,0.28)"/>
+          <circle cx="7"  cy="59" r="3.5" fill="rgba(34,197,94,0.2)" filter="url(#bSoftGlow)"/>
+          <circle cx="10" cy="48" r="1.5" fill="rgba(34,197,94,0.15)"/>
+        </svg>
+          </div>
+        </div>
+        <div style={{
+          fontFamily: "'Bebas Neue', sans-serif",
+          fontSize: 36,
+          lineHeight: 1,
+          letterSpacing: '0.06em',
+          color: '#f59e0b',
+          textShadow: '0 0 24px rgba(245,158,11,0.4)',
+        }}>
+          DRINKY
+        </div>
+      </div>
+
       {/* Room code banner */}
       <div className="glass p-4 text-center">
         <div style={{ fontSize: 11, color: 'var(--text-dim)', letterSpacing: '0.08em', marginBottom: 2 }}>방 코드</div>

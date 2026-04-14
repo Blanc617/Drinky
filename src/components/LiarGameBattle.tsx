@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import type { RealtimeChannel } from '@supabase/supabase-js'
 
 interface Props {
   onComplete: (score: number) => void
@@ -10,6 +11,7 @@ interface Props {
   myName: string
   players: { userId: string; name: string }[]
   isHost: boolean
+  rounds?: number
 }
 
 const CATEGORIES: Record<string, string[]> = {
@@ -51,7 +53,7 @@ function pick<T>(arr: T[]): T {
 
 type Phase = 'waiting' | 'dealing' | 'countdown' | 'discuss' | 'vote' | 'reveal'
 
-export default function LiarGameBattle({ onComplete, roomCode, userId, players, isHost }: Props) {
+export default function LiarGameBattle({ onComplete, roomCode, userId, players, isHost, rounds = 1 }: Props) {
   const [phase, setPhase] = useState<Phase>('waiting')
   const [selectedCat, setSelectedCat] = useState('랜덤')
   const [keyword, setKeyword] = useState('')
@@ -66,8 +68,19 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
   const [myVote, setMyVote] = useState<string | null>(null)
   const [liarRevealed, setLiarRevealed] = useState(false)
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const channelRef = useRef<any>(null)
+  // Drumroll reveal animation states
+  const [drumrolling, setDrumrolling] = useState(false)
+  const [drumrollCount, setDrumrollCount] = useState(0)
+
+  // Vote-based scoring states
+  const [liarWon, setLiarWon] = useState<boolean | null>(null)
+  const [liarGuess, setLiarGuess] = useState('')
+  const [guessResult, setGuessResult] = useState<'correct' | 'wrong' | null>(null)
+
+  const [currentRound, setCurrentRound] = useState(1)
+  const accScoreRef = useRef(0)
+
+  const channelRef = useRef<RealtimeChannel | null>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const confirmCountRef = useRef(0)
   const voteMapRef = useRef<Record<string, string>>({})
@@ -78,7 +91,8 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
   playerCountRef.current = players.length
 
   const isLiar = userId === liarUserId
-  const DISCUSS_TIME = players.length * 30
+  // Clamped discuss time: minimum 1 min, maximum 3 min
+  const DISCUSS_TIME = Math.max(60, Math.min(180, players.length * 30))
 
   useEffect(() => {
     const supabase = createClient()
@@ -102,7 +116,8 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
         confirmCountRef.current++
         setConfirmCount(confirmCountRef.current)
         if (confirmCountRef.current >= playerCountRef.current) {
-          channel.send({ type: 'broadcast', event: 'liar_discuss', payload: { discussTime: playerCountRef.current * 30 } })
+          const discussTime = Math.max(60, Math.min(180, playerCountRef.current * 30))
+          channel.send({ type: 'broadcast', event: 'liar_discuss', payload: { discussTime } })
         }
       })
       .on('broadcast', { event: 'liar_discuss' }, ({ payload }: { payload: { discussTime: number } }) => {
@@ -149,9 +164,33 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
           setPhase('reveal')
         }
       })
+      .on('broadcast', { event: 'liar_guess_result' }, ({ payload }: { payload: { result: 'correct' | 'wrong' } }) => {
+        if (isLiar) return // 라이어는 로컬에서 이미 처리
+        setGuessResult(payload.result)
+        if (payload.result === 'correct') setLiarWon(true)
+      })
       .on('broadcast', { event: 'liar_reveal' }, () => {
         setLiarRevealed(false)
         setPhase('reveal')
+      })
+      .on('broadcast', { event: 'liar_next_round' }, ({ payload }: { payload: { round: number } }) => {
+        setCurrentRound(payload.round)
+        setPhase('waiting')
+        setKeyword('')
+        setLiarUserId('')
+        setCardRevealed(false)
+        setConfirmed(false)
+        setConfirmCount(0)
+        confirmCountRef.current = 0
+        setVoteMap({})
+        setMyVote(null)
+        voteMapRef.current = {}
+        setLiarRevealed(false)
+        setDrumrolling(false)
+        setDrumrollCount(0)
+        setLiarWon(null)
+        setLiarGuess('')
+        setGuessResult(null)
       })
       .subscribe()
 
@@ -189,6 +228,77 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
       event: 'liar_vote',
       payload: { voterId: userId, targetUserId },
     })
+  }
+
+  function handleRevealTap(currentLiarUserId: string, currentVoteMap: Record<string, string>) {
+    if (drumrolling || liarRevealed) return
+    setDrumrolling(true)
+    setDrumrollCount(0)
+
+    let count = 0
+    const interval = setInterval(() => {
+      count++
+      setDrumrollCount(count)
+      if (count >= 3) {
+        clearInterval(interval)
+        setDrumrolling(false)
+        setLiarRevealed(true)
+
+        // Compute winner based on votes
+        const tally: Record<string, number> = {}
+        for (const target of Object.values(currentVoteMap)) {
+          tally[target] = (tally[target] ?? 0) + 1
+        }
+        let accusedId = ''
+        let maxVotesFound = 0
+        for (const [uid, votes] of Object.entries(tally)) {
+          if (votes > maxVotesFound) {
+            maxVotesFound = votes
+            accusedId = uid
+          }
+        }
+        const accusedIsLiar = accusedId === currentLiarUserId
+        // If accused IS the liar → civilians win (liarWon = false)
+        // If accused is NOT the liar → liar escapes (liarWon = true)
+        setLiarWon(!accusedIsLiar)
+      }
+    }, 1000)
+  }
+
+  function handleLiarGuessSubmit() {
+    const trimmed = liarGuess.trim().toLowerCase()
+    const correct = trimmed === keyword.trim().toLowerCase()
+    const result: 'correct' | 'wrong' = correct ? 'correct' : 'wrong'
+    setGuessResult(result)
+    if (correct) setLiarWon(true)
+    channelRef.current?.send({
+      type: 'broadcast',
+      event: 'liar_guess_result',
+      payload: { result },
+    })
+  }
+
+  function computeMyScore(won: boolean): number {
+    if (isLiar) {
+      return won ? 100 : 0
+    } else {
+      return won ? 0 : 100
+    }
+  }
+
+  function handleRoundComplete() {
+    const roundScore = computeMyScore(liarWon ?? false)
+    accScoreRef.current += roundScore
+    const nextRound = currentRound + 1
+    if (nextRound <= rounds) {
+      channelRef.current?.send({
+        type: 'broadcast',
+        event: 'liar_next_round',
+        payload: { round: nextRound },
+      })
+    } else {
+      onComplete(Math.round(accScoreRef.current / rounds))
+    }
   }
 
   // ── waiting ──
@@ -256,7 +366,7 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
           <button onClick={() => setCardRevealed(true)} style={{
             width: 200, height: 280, borderRadius: 24,
             background: 'linear-gradient(135deg, #1a1714, #2a2520)',
-            border: '2px solid var(--border)',
+            border: '1px solid var(--border)',
             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
             gap: 12, cursor: 'pointer',
             boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
@@ -267,35 +377,38 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
         ) : isLiar ? (
           <div style={{
             width: 200, height: 280, borderRadius: 24,
-            background: 'rgba(239,68,68,0.12)', border: '2px solid #ef4444',
+            background: 'var(--surface2)', border: '2px solid #ef4444',
             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-            gap: 10, boxShadow: '0 0 32px rgba(239,68,68,0.3), 0 8px 32px rgba(0,0,0,0.2)',
+            gap: 10, boxShadow: '0 0 20px rgba(239,68,68,0.15), 0 8px 32px rgba(0,0,0,0.2)',
             animation: 'flipIn 0.35s ease',
           }}>
             <span style={{ fontSize: 56, lineHeight: 1 }}>🤥</span>
             <span style={{
-              fontFamily: "'Bebas Neue'", fontSize: 36, letterSpacing: '0.05em',
-              color: '#ef4444', textShadow: '0 0 20px rgba(239,68,68,0.6)',
+              fontFamily: "'Bebas Neue'", fontSize: 32, letterSpacing: '0.05em',
+              color: 'var(--amber)',
             }}>라이어!</span>
-            <span style={{ fontSize: 12, color: '#ef4444', opacity: 0.8, padding: '0 20px', lineHeight: 1.6, textAlign: 'center' }}>
-              주제를 모릅니다.<br />다른 플레이어의 설명을<br />잘 듣고 속여보세요!
+            <span style={{ fontSize: 12, color: 'var(--text-dim)', padding: '0 20px', lineHeight: 1.6, textAlign: 'center' }}>
+              주제를 모릅니다.<br />설명을 잘 듣고<br />속여보세요!
             </span>
           </div>
         ) : (
           <div style={{
             width: 200, height: 280, borderRadius: 24,
-            background: 'rgba(96,165,250,0.12)', border: '2px solid #60a5fa',
+            background: 'var(--surface2)', border: '1px solid var(--border)',
             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-            gap: 10, boxShadow: '0 0 32px rgba(96,165,250,0.3), 0 8px 32px rgba(0,0,0,0.2)',
+            gap: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
             animation: 'flipIn 0.35s ease',
           }}>
             <span style={{ fontSize: 38, lineHeight: 1 }}>🔍</span>
-            <span style={{ fontSize: 12, color: '#60a5fa', opacity: 0.8 }}>이번 주제</span>
+            <span style={{ fontSize: 11, color: 'var(--text-dim)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>이번 단어</span>
             <span style={{
-              fontFamily: "'Bebas Neue'", fontSize: 40, letterSpacing: '0.05em',
-              color: '#60a5fa', textShadow: '0 0 20px rgba(96,165,250,0.6)',
+              fontSize: 26, fontWeight: 800,
+              color: 'var(--text)',
+              whiteSpace: 'nowrap',
+              letterSpacing: '-0.01em',
+              textShadow: '0 0 20px rgba(255,255,255,0.15)',
             }}>{keyword}</span>
-            <span style={{ fontSize: 12, color: '#60a5fa', opacity: 0.8, padding: '0 20px', lineHeight: 1.6, textAlign: 'center' }}>
+            <span style={{ fontSize: 12, color: 'var(--text-dim)', padding: '0 20px', lineHeight: 1.6, textAlign: 'center' }}>
               직접 말하지 말고<br />돌아가며 설명하세요
             </span>
           </div>
@@ -494,11 +607,25 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
   }
   const sortedByVotes = [...players].sort((a, b) => (tally[b.userId] ?? 0) - (tally[a.userId] ?? 0))
 
+  // Find the most accused player
+  let accusedId = ''
+  let maxVotesFound = 0
+  for (const [uid, votes] of Object.entries(tally)) {
+    if (votes > maxVotesFound) {
+      maxVotesFound = votes
+      accusedId = uid
+    }
+  }
+
+  // Drumroll dots (1–3)
+  const dots = '.'.repeat(Math.min(drumrollCount, 3))
+
   return (
-    <div className="flex flex-col items-center gap-5 text-center w-full">
+    <div className="flex flex-col items-center gap-5 text-center w-full" style={{ overflowY: 'auto', paddingBottom: 8 }}>
       <style>{`
         @keyframes popIn { from { transform: scale(0.5); opacity: 0 } to { transform: scale(1); opacity: 1 } }
         @keyframes fadeUp { from { transform: translateY(20px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
+        @keyframes pulse { 0%, 100% { opacity: 1 } 50% { opacity: 0.4 } }
       `}</style>
 
       {/* 투표 결과 */}
@@ -536,80 +663,204 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
       </div>
 
       {/* 정체 공개 */}
-      <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)', marginTop: 4 }}>정체 공개</div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.08em', textTransform: 'uppercase', width: '100%', textAlign: 'left' }}>
+        정체 공개
+      </div>
 
       {!liarRevealed ? (
         <>
-          <p style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.6 }}>
-            라이어의 정체를 공개합니다
-          </p>
-          <button
-            onClick={() => setLiarRevealed(true)}
-            style={{
-              width: 180, height: 180, borderRadius: 32,
-              background: 'rgba(239,68,68,0.12)', border: '2px solid #ef4444',
-              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-              gap: 8, cursor: 'pointer',
-              boxShadow: '0 0 32px rgba(239,68,68,0.2)',
-              fontSize: 52, transition: 'transform 0.15s ease',
-            }}
-          >
-            🤥
-            <span style={{ fontSize: 13, color: '#ef4444', fontWeight: 700 }}>탭해서 공개</span>
-          </button>
-        </>
-      ) : (
-        <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 12, animation: 'fadeUp 0.4s ease' }}>
-          <div style={{
-            padding: '16px 20px', borderRadius: 20,
-            background: 'rgba(239,68,68,0.12)', border: '2px solid #ef4444',
-            boxShadow: '0 0 24px rgba(239,68,68,0.2)',
-          }}>
-            <div style={{ fontSize: 13, color: '#ef4444', opacity: 0.8, marginBottom: 4 }}>라이어는...</div>
-            <div style={{
-              fontFamily: "'Bebas Neue'", fontSize: 40, color: '#ef4444',
-              textShadow: '0 0 20px rgba(239,68,68,0.6)', lineHeight: 1,
-            }}>
-              {players.find(p => p.userId === liarUserId)?.name ?? '???'} 🤥
-            </div>
-          </div>
-
-          {isLiar ? (
-            <div style={{
-              padding: '16px 20px', borderRadius: 20,
-              background: 'rgba(245,158,11,0.1)', border: '2px solid var(--amber)',
-              boxShadow: '0 0 24px rgba(245,158,11,0.2)',
-            }}>
-              <div style={{ fontSize: 13, color: 'var(--amber)', opacity: 0.8, marginBottom: 6 }}>라이어 최후의 기회!</div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--amber)', lineHeight: 1.6 }}>
-                주제가 무엇인지 맞춰보세요
-              </div>
-              <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>
-                맞추면 역전승!
+          {drumrolling ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '16px 0' }}>
+              <div style={{ fontSize: 40, animation: 'pulse 0.6s ease-in-out infinite' }}>🥁</div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--amber)' }}>
+                라이어는 바로<span style={{ display: 'inline-block', minWidth: 28 }}>{dots}</span>
               </div>
             </div>
           ) : (
-            <div style={{
-              padding: '16px 20px', borderRadius: 20,
-              background: 'rgba(96,165,250,0.12)', border: '2px solid #60a5fa',
-              boxShadow: '0 0 24px rgba(96,165,250,0.2)',
+            <>
+              <p style={{ fontSize: 13, color: 'var(--text-dim)', margin: 0 }}>
+                탭해서 라이어를 공개하세요
+              </p>
+              <button
+                onClick={() => handleRevealTap(liarUserId, voteMap)}
+                style={{
+                  width: 120, height: 120, borderRadius: 24,
+                  background: 'var(--surface2)', border: '1px solid var(--border)',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                  gap: 6, cursor: 'pointer', fontSize: 40,
+                  transition: 'transform 0.15s ease',
+                }}
+              >
+                🤥
+                <span style={{ fontSize: 12, color: 'var(--text-dim)', fontWeight: 600 }}>탭해서 공개</span>
+              </button>
+            </>
+          )}
+        </>
+      ) : (
+        <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 10, animation: 'fadeUp 0.4s ease' }}>
+          {/* Liar identity */}
+          <div className="glass" style={{ position: 'relative', display: 'flex', alignItems: 'center', border: '1px solid var(--border)', padding: '10px 16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 16 }}>
+              <span style={{ fontSize: 20 }}>🤥</span>
+              <span style={{ fontSize: 12, color: 'var(--text-dim)', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 600 }}>라이어</span>
+            </div>
+            <span style={{ position: 'absolute', left: 0, right: 0, textAlign: 'center', fontSize: 16, fontWeight: 800, color: 'var(--text)', pointerEvents: 'none' }}>
+              {players.find(p => p.userId === liarUserId)?.name ?? '???'}
+            </span>
+          </div>
+
+          {/* Win/loss result (before liar guess) */}
+          {liarWon !== null && guessResult === null && (
+            <div className="glass" style={{
+              animation: 'popIn 0.3s ease',
+              border: '1px solid var(--border)',
+              borderLeft: `3px solid ${liarWon ? '#f59e0b' : '#4ade80'}`,
+              display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px',
             }}>
-              <div style={{ fontSize: 13, color: '#60a5fa', opacity: 0.8, marginBottom: 4 }}>이번 주제는...</div>
-              <div style={{
-                fontFamily: "'Bebas Neue'", fontSize: 52, color: '#60a5fa',
-                textShadow: '0 0 20px rgba(96,165,250,0.6)', lineHeight: 1,
-              }}>
-                {keyword}
+              <span style={{ fontSize: 40, lineHeight: 1, flexShrink: 0 }}>{liarWon ? '🤥' : '🎉'}</span>
+              <div style={{ textAlign: 'left' }}>
+                <div style={{
+                  fontSize: 18, fontWeight: 600, lineHeight: 1,
+                  color: liarWon ? '#f59e0b' : '#4ade80',
+                }}>
+                  {liarWon ? '라이어 승리' : '시민 승리'}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 3 }}>
+                  {liarWon
+                    ? '라이어가 투표에서 살아남았습니다'
+                    : `${players.find(p => p.userId === accusedId)?.name ?? '???'}이(가) 라이어로 지목됐습니다`}
+                </div>
               </div>
             </div>
           )}
 
-          <div className="glass p-4" style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.7 }}>
-            라이어가 주제를 맞추면 역전승!<br />
-            <strong style={{ color: 'var(--text)' }}>라이어: </strong>주제를 말할 기회가 있습니다
-          </div>
+          {/* Liar's guess input */}
+          {isLiar && guessResult === null && (
+            <div className="glass p-3" style={{ border: '1px solid var(--border)', textAlign: 'left' }}>
+              <div style={{ fontSize: 12, color: 'var(--amber)', fontWeight: 700, marginBottom: 6 }}>💡 최후의 기회 — 주제를 맞춰보세요</div>
+              <input
+                type="text"
+                value={liarGuess}
+                onChange={e => setLiarGuess(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && liarGuess.trim()) handleLiarGuessSubmit() }}
+                placeholder="키워드 입력..."
+                style={{
+                  width: '100%', padding: '9px 12px', borderRadius: 10,
+                  border: '1px solid var(--border)', background: 'var(--surface2)',
+                  color: 'var(--text)', fontSize: 14, outline: 'none',
+                  boxSizing: 'border-box', marginBottom: 8,
+                }}
+              />
+              <button
+                onClick={() => { if (liarGuess.trim()) handleLiarGuessSubmit() }}
+                disabled={!liarGuess.trim()}
+                style={{
+                  width: '100%', padding: '10px 0', borderRadius: 10,
+                  background: liarGuess.trim() ? 'var(--amber)' : 'var(--surface2)',
+                  color: liarGuess.trim() ? '#1a1410' : 'var(--text-dim)',
+                  fontWeight: 700, fontSize: 14, border: 'none',
+                  cursor: liarGuess.trim() ? 'pointer' : 'default',
+                }}
+              >
+                정답 제출
+              </button>
+            </div>
+          )}
 
-          <button className="btn-primary" onClick={() => onComplete(100)}>완료</button>
+          {/* Keyword reveal + liar guessing indicator (non-liar, 결과 나오기 전만) */}
+          {!isLiar && (
+            <>
+              <div className="glass" style={{ position: 'relative', display: 'flex', alignItems: 'center', border: '1px solid var(--border)', padding: '10px 16px' }}>
+                <span style={{ fontSize: 12, color: 'var(--text-dim)', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 600, marginLeft: 32 }}>이번 단어</span>
+                <span style={{ position: 'absolute', left: 0, right: 0, textAlign: 'center', fontSize: 16, fontWeight: 800, color: 'var(--text)', pointerEvents: 'none' }}>
+                  {keyword}
+                </span>
+              </div>
+              {guessResult === null && (
+                <div className="glass p-3" style={{ border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 24, animation: 'pulse 1s ease-in-out infinite' }}>✏️</span>
+                  <div style={{ textAlign: 'left' }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>라이어가 정답을 맞추는 중...</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 2 }}>결과를 기다려 주세요</div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Guess result — 라이어/시민 시점 분리 */}
+          {guessResult !== null && (() => {
+            const liarCorrect = guessResult === 'correct'
+            // 라이어 시점
+            if (isLiar) {
+              return liarCorrect ? (
+                <div className="glass" style={{
+                  animation: 'popIn 0.3s ease', border: '1px solid var(--border)',
+                  borderLeft: '3px solid #f59e0b',
+                  display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px',
+                }}>
+                  <span style={{ fontSize: 40, lineHeight: 1, flexShrink: 0 }}>🤥</span>
+                  <div style={{ textAlign: 'left' }}>
+                    <div style={{ fontSize: 18, fontWeight: 600, lineHeight: 1, color: '#f59e0b' }}>역전! 라이어 승리</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 3 }}>{`"${keyword}" 정답!`}</div>
+                  </div>
+                </div>
+              ) : (
+                <div className="glass" style={{
+                  animation: 'popIn 0.3s ease', border: '1px solid var(--border)',
+                  borderLeft: '3px solid var(--text-dim)',
+                  display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px',
+                }}>
+                  <span style={{ fontSize: 40, lineHeight: 1, flexShrink: 0 }}>😢</span>
+                  <div style={{ textAlign: 'left' }}>
+                    <div style={{ fontSize: 16 }}>
+                      <span style={{ color: '#ef4444', fontWeight: 700 }}>땡!</span>
+                      <span style={{ color: 'var(--text)', fontWeight: 600 }}> 정답은 </span>
+                      <span style={{ color: 'var(--text)', fontWeight: 800 }}>"{keyword}"</span>
+                      <span style={{ color: 'var(--text)', fontWeight: 600 }}> 입니다!</span>
+                    </div>
+                  </div>
+                </div>
+              )
+            }
+            // 시민 시점
+            return liarCorrect ? (
+              <div className="glass" style={{
+                animation: 'popIn 0.3s ease', border: '1px solid var(--border)',
+                borderLeft: '3px solid var(--text-dim)',
+                display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px',
+              }}>
+                <span style={{ fontSize: 40, lineHeight: 1, flexShrink: 0 }}>😱</span>
+                <div style={{ textAlign: 'left' }}>
+                  <div style={{ fontSize: 18, fontWeight: 600, lineHeight: 1, color: 'var(--text-muted)' }}>라이어가 정답을 맞췄습니다</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 3 }}>{`정답: "${keyword}"`}</div>
+                </div>
+              </div>
+            ) : (
+              <div className="glass" style={{
+                animation: 'popIn 0.3s ease', border: '1px solid var(--border)',
+                borderLeft: '3px solid #4ade80',
+                display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px',
+              }}>
+                <span style={{ fontSize: 40, lineHeight: 1, flexShrink: 0 }}>🎉</span>
+                <div style={{ textAlign: 'left' }}>
+                  <div style={{ fontSize: 18, fontWeight: 600, lineHeight: 1, color: '#4ade80' }}>라이어가 틀렸습니다!</div>
+                </div>
+              </div>
+            )
+          })()}
+
+          <button
+            onClick={handleRoundComplete}
+            style={{
+              width: '100%', padding: '12px 0', borderRadius: 12,
+              background: 'transparent', border: '1px solid var(--border)',
+              color: 'var(--text-muted)', fontSize: 15, fontWeight: 600, cursor: 'pointer',
+            }}
+          >
+            {currentRound < rounds ? `다음 라운드 (${currentRound}/${rounds})` : '완료'}
+          </button>
         </div>
       )}
     </div>

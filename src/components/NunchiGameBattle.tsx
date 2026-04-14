@@ -14,7 +14,7 @@ interface Props {
 }
 
 const ROUND_TIME = 5
-const SHOW_DELAY = 2500
+const SHOW_DELAY = 3000
 
 interface ClaimEntry {
   slotIdx: number
@@ -38,6 +38,7 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
   const [myPoints, setMyPoints] = useState(0)
   const [lastResult, setLastResult] = useState<'success' | 'collision' | 'missed' | null>(null)
   const [lastPoints, setLastPoints] = useState(0)
+  const [collisionNames, setCollisionNames] = useState<string[]>([])
 
   const phaseRef        = useRef<Phase>('intro')
   const roundRef        = useRef(0)
@@ -76,6 +77,7 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
     submittedRef.current = false
     setLastResult(null)
     setLastPoints(0)
+    setCollisionNames([])
     setTimeLeft(ROUND_TIME)
     setPhaseSync('playing')
 
@@ -96,7 +98,6 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
     setPhaseSync('showing')
 
     const claims = roundClaimsRef.current
-    // 고유 슬롯(충돌 없는 슬롯)만 추린 뒤 수신 순서(order)로 정렬
     const uniqueClaims = claims
       .filter(c => claims.filter(x => x.slotIdx === c.slotIdx).length === 1)
       .sort((a, b) => a.order - b.order)
@@ -108,12 +109,15 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
     } else {
       const claimersOnMySlot = claims.filter(c => c.slotIdx === mySlot)
       if (claimersOnMySlot.length > 1) {
+        const others = claimersOnMySlot
+          .filter(c => c.userId !== userId)
+          .map(c => c.name)
+        setCollisionNames(others)
         setLastResult('collision')
         setLastPoints(0)
       } else {
-        // 고유 선택자 중 내 순위 (0-indexed → 1-indexed)
         const rank = uniqueClaims.findIndex(c => c.userId === userId) + 1
-        const pts = uniqueClaims.length - rank + 1  // 1등=uniqueCount점, 꼴찌=1점
+        const pts = uniqueClaims.length - rank + 1
         myPointsRef.current += pts
         setMyPoints(myPointsRef.current)
         setLastResult('success')
@@ -160,7 +164,7 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
         }
         if (r !== roundRef.current || phaseRef.current !== 'playing') return
 
-        const order = roundClaimsRef.current.length  // 수신 순서
+        const order = roundClaimsRef.current.length
         const entry: ClaimEntry = { slotIdx, userId: uid, name, order }
         roundClaimsRef.current = [...roundClaimsRef.current, entry]
         setRoundClaims([...roundClaimsRef.current])
@@ -186,7 +190,6 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── intro: 대기 ──
   if (phase === 'intro') {
     return (
       <div className="flex flex-col items-center justify-center gap-4 text-center w-full" style={{ minHeight: 200 }}>
@@ -195,7 +198,6 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
     )
   }
 
-  // ── result ──
   if (phase === 'result') {
     return (
       <div className="flex flex-col items-center gap-4 text-center">
@@ -210,7 +212,6 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
     )
   }
 
-  // ── playing / showing ──
   const isShowing = phase === 'showing'
   const cols = slotCount <= 4 ? 2 : 3
 
@@ -218,12 +219,34 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
     roundClaims.filter(c => c.slotIdx === i)
   )
 
+  // Compute last-slot highlight: during playing, find the one slot with no claimers
+  // when exactly one slot is left unclaimed
+  const uniqueSubmitters = new Set(roundClaims.map(c => c.userId))
+  const claimedSlots = new Set(roundClaims.map(c => c.slotIdx))
+  const unclaimedSlots = Array.from({ length: slotCount }, (_, i) => i).filter(i => !claimedSlots.has(i))
+  const isLastSlotTension = !isShowing && (slotCount - uniqueSubmitters.size === 1) && unclaimedSlots.length === 1
+  const lastUnclaimedSlot = isLastSlotTension ? unclaimedSlots[0] : null
+
   const resultColor =
     lastResult === 'success' ? '#4ade80' :
     lastResult === 'collision' ? '#ef4444' : '#f97316'
 
+  const collisionLabel = collisionNames.length > 0
+    ? `💥 ${collisionNames.join(', ')}와(과) 충돌! +0점`
+    : '💥 충돌! +0점'
+
   return (
     <div className="flex flex-col items-center gap-5 w-full">
+      <style>{`
+        @keyframes nunchi-pulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(245,158,11,0.5), 0 0 12px rgba(245,158,11,0.3); }
+          50% { box-shadow: 0 0 0 6px rgba(245,158,11,0), 0 0 24px rgba(245,158,11,0.6); }
+        }
+        .nunchi-last-slot {
+          animation: nunchi-pulse 0.8s ease-in-out infinite;
+        }
+      `}</style>
+
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', fontSize: 13 }}>
         <span style={{ color: 'var(--text-dim)' }}>{round + 1} / {totalRounds}</span>
         <span style={{
@@ -241,7 +264,7 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
       {isShowing && lastResult && (
         <div style={{ fontSize: 16, fontWeight: 700, color: resultColor, textAlign: 'center' }}>
           {lastResult === 'success' ? `✓ 성공! +${lastPoints}점` :
-           lastResult === 'collision' ? '💥 충돌! +0점' : '⏱ 선택 안 함 +0점'}
+           lastResult === 'collision' ? collisionLabel : '⏱ 선택 안 함 +0점'}
         </div>
       )}
       {!isShowing && (
@@ -259,6 +282,7 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
           const isMyChoice = myChoice === i
           const isCollision = isShowing && claimers.length > 1
           const isSafe = isShowing && claimers.length === 1
+          const isLastSlot = lastUnclaimedSlot === i
 
           let border = '1px solid var(--border)'
           let bg = 'var(--surface)'
@@ -268,9 +292,29 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
             border = '2px solid var(--amber)'
             bg = 'rgba(245,158,11,0.1)'
             numColor = 'var(--amber)'
+          } else if (!isShowing && isLastSlot) {
+            border = '2px solid var(--amber)'
+            bg = 'rgba(245,158,11,0.08)'
+            numColor = 'var(--amber)'
           } else if (isShowing) {
             if (isCollision) { border = '2px solid #ef4444'; bg = 'rgba(239,68,68,0.1)'; numColor = '#ef4444' }
             else if (isSafe)  { border = '2px solid #4ade80'; bg = 'rgba(74,222,128,0.1)'; numColor = '#4ade80' }
+          }
+
+          // During playing: show names of claimers on this slot in real time
+          const showLiveNames = !isShowing && claimers.length > 0
+          const liveIsCollision = claimers.length > 1
+          if (!isShowing && claimers.length > 0 && !isMyChoice) {
+            // Someone else claimed this slot (or multiple); show subtle highlight
+            if (liveIsCollision) {
+              border = '2px solid rgba(239,68,68,0.6)'
+              bg = 'rgba(239,68,68,0.07)'
+              numColor = 'rgba(239,68,68,0.8)'
+            } else {
+              border = '2px solid rgba(74,222,128,0.5)'
+              bg = 'rgba(74,222,128,0.07)'
+              numColor = 'rgba(74,222,128,0.8)'
+            }
           }
 
           return (
@@ -278,12 +322,13 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
               key={i}
               onClick={() => handleSlotTap(i)}
               disabled={isShowing || myChoice !== null}
+              className={isLastSlot ? 'nunchi-last-slot' : undefined}
               style={{
                 display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                 gap: 2, borderRadius: 16, aspectRatio: '1',
                 border, background: bg,
                 cursor: isShowing || myChoice !== null ? 'default' : 'pointer',
-                transition: 'all 0.15s ease',
+                transition: isLastSlot ? 'border 0.15s ease, background 0.15s ease' : 'all 0.15s ease',
                 WebkitTapHighlightColor: 'transparent',
                 padding: 8,
               }}
@@ -291,6 +336,19 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
               <span style={{ fontFamily: "'Bebas Neue'", fontSize: 52, lineHeight: 1, color: numColor }}>
                 {i + 1}
               </span>
+
+              {/* Real-time name display during playing phase */}
+              {showLiveNames && (
+                <span style={{
+                  fontSize: 10, fontWeight: 600, textAlign: 'center', lineHeight: 1.3,
+                  color: liveIsCollision ? 'rgba(239,68,68,0.9)' : 'rgba(74,222,128,0.9)',
+                  overflow: 'hidden', maxWidth: '100%',
+                }}>
+                  {claimers.map(c => c.userId === userId ? '나' : c.name).join(', ')}
+                </span>
+              )}
+
+              {/* Result display during showing phase */}
               {isShowing && claimers.length > 0 && (
                 <span style={{
                   fontSize: 10, fontWeight: 600, textAlign: 'center', lineHeight: 1.3,

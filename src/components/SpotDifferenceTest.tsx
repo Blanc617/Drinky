@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { shuffle } from '@/lib/utils'
 
 interface Props {
   onComplete: (score: number) => void
@@ -18,9 +19,6 @@ const COLORS = [
 
 type Phase = 'intro' | 'playing' | 'feedback' | 'result'
 
-function shuffle<T>(arr: T[]): T[] {
-  return [...arr].sort(() => Math.random() - 0.5)
-}
 
 function generateGrids() {
   // 9칸 모두 고유한 색상 사용

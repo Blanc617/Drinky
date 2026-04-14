@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { shuffle } from '@/lib/utils'
 
 interface Props {
   onComplete: (score: number) => void
@@ -18,14 +19,6 @@ const ROLE_STYLE: Record<Role, { emoji: string; color: string; bg: string; borde
 }
 
 
-function shuffle<T>(arr: T[]): T[] {
-  const a = [...arr]
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[a[i], a[j]] = [a[j], a[i]]
-  }
-  return a
-}
 
 const DEFAULT_COUNTS: Record<number, { 마피아: number; 경찰: number; 의사: number }> = {
   4:  { 마피아: 1, 경찰: 1, 의사: 0 },
