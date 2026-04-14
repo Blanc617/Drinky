@@ -229,13 +229,6 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
     roundClaims.filter(c => c.slotIdx === i)
   )
 
-  // Compute last-slot highlight: during playing, find the one slot with no claimers
-  // when exactly one slot is left unclaimed
-  const uniqueSubmitters = new Set(roundClaims.map(c => c.userId))
-  const claimedSlots = new Set(roundClaims.map(c => c.slotIdx))
-  const unclaimedSlots = Array.from({ length: slotCount }, (_, i) => i).filter(i => !claimedSlots.has(i))
-  const isLastSlotTension = !isShowing && (slotCount - uniqueSubmitters.size === 1) && unclaimedSlots.length === 1
-  const lastUnclaimedSlot = isLastSlotTension ? unclaimedSlots[0] : null
 
   const resultColor =
     lastResult === 'success' ? '#4ade80' :
@@ -250,15 +243,6 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
       <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.1em', textAlign: 'center' }}>
         ROUND {round + 1} / {totalRounds}
       </div>
-      <style>{`
-        @keyframes nunchi-pulse {
-          0%, 100% { box-shadow: 0 0 0 0 rgba(245,158,11,0.5), 0 0 12px rgba(245,158,11,0.3); }
-          50% { box-shadow: 0 0 0 6px rgba(245,158,11,0), 0 0 24px rgba(245,158,11,0.6); }
-        }
-        .nunchi-last-slot {
-          animation: nunchi-pulse 0.8s ease-in-out infinite;
-        }
-      `}</style>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', fontSize: 13 }}>
         <span style={{
@@ -299,7 +283,6 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
           const isMyChoice = myChoice === i
           const isCollision = isShowing && claimers.length > 1
           const isSafe = isShowing && claimers.length === 1
-          const isLastSlot = lastUnclaimedSlot === i
 
           let border = '1px solid var(--border)'
           let bg = 'var(--surface)'
@@ -309,43 +292,24 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
             border = '2px solid var(--amber)'
             bg = 'rgba(245,158,11,0.1)'
             numColor = 'var(--amber)'
-          } else if (!isShowing && isLastSlot) {
-            border = '2px solid var(--amber)'
-            bg = 'rgba(245,158,11,0.08)'
-            numColor = 'var(--amber)'
           } else if (isShowing) {
             if (isCollision) { border = '2px solid #ef4444'; bg = 'rgba(239,68,68,0.1)'; numColor = '#ef4444' }
             else if (isSafe)  { border = '2px solid #4ade80'; bg = 'rgba(74,222,128,0.1)'; numColor = '#4ade80' }
           }
 
-          // During playing: show names of claimers on this slot in real time
           const showLiveNames = !isShowing && claimers.length > 0
-          const liveIsCollision = claimers.length > 1
-          if (!isShowing && claimers.length > 0 && !isMyChoice) {
-            // Someone else claimed this slot (or multiple); show subtle highlight
-            if (liveIsCollision) {
-              border = '2px solid rgba(239,68,68,0.6)'
-              bg = 'rgba(239,68,68,0.07)'
-              numColor = 'rgba(239,68,68,0.8)'
-            } else {
-              border = '2px solid rgba(74,222,128,0.5)'
-              bg = 'rgba(74,222,128,0.07)'
-              numColor = 'rgba(74,222,128,0.8)'
-            }
-          }
 
           return (
             <button
               key={i}
               onClick={() => handleSlotTap(i)}
               disabled={isShowing || myChoice !== null}
-              className={isLastSlot ? 'nunchi-last-slot' : undefined}
               style={{
                 display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                 gap: 2, borderRadius: 16, aspectRatio: '1',
                 border, background: bg,
                 cursor: isShowing || myChoice !== null ? 'default' : 'pointer',
-                transition: isLastSlot ? 'border 0.15s ease, background 0.15s ease' : 'all 0.15s ease',
+                transition: 'all 0.15s ease',
                 WebkitTapHighlightColor: 'transparent',
                 padding: 8,
               }}
@@ -354,11 +318,11 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
                 {i + 1}
               </span>
 
-              {/* Real-time name display during playing phase */}
+              {/* Real-time name display during playing phase — no color coding */}
               {showLiveNames && (
                 <span style={{
                   fontSize: 10, fontWeight: 600, textAlign: 'center', lineHeight: 1.3,
-                  color: liveIsCollision ? 'rgba(239,68,68,0.9)' : 'rgba(74,222,128,0.9)',
+                  color: 'var(--text-dim)',
                   overflow: 'hidden', maxWidth: '100%',
                   textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                 }}>
