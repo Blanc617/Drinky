@@ -12,6 +12,7 @@ interface Props {
   myName: string
   isHost: boolean
   rounds?: number
+  difficulty?: '2글자' | '3글자' | '섞기'
 }
 
 const ROUND_COUNT = 4
@@ -29,9 +30,8 @@ interface AnswerEntry {
 }
 
 
-export default function ChoSeongBattle({ onComplete, roomCode, userId, myName, isHost, rounds }: Props) {
-  const [hostSetup, setHostSetup] = useState(isHost)
-  const [difficulty, setDifficulty] = useState<Difficulty>('섞기')
+export default function ChoSeongBattle({ onComplete, roomCode, userId, myName, isHost, rounds, difficulty: difficultyProp }: Props) {
+  const [difficulty, setDifficulty] = useState<Difficulty>(difficultyProp ?? '섞기')
   const [ready, setReady] = useState(false)
   const [qIdx, setQIdx] = useState(0)
   const [phase, setPhase] = useState<'playing' | 'showing'>('playing')
@@ -92,7 +92,6 @@ export default function ChoSeongBattle({ onComplete, roomCode, userId, myName, i
       event: 'cs_init',
       payload: { questions },
     })
-    setHostSetup(false)
   }
 
   useEffect(() => {
@@ -164,66 +163,17 @@ export default function ChoSeongBattle({ onComplete, roomCode, userId, myName, i
         answersRef.current = [...answersRef.current, entry]
         setAnswers([...answersRef.current])
       })
-      .subscribe()
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED' && isHost) {
+          setTimeout(() => handleHostStart(), 1500)
+        }
+      })
 
     return () => {
       if (timerRef.current) clearInterval(timerRef.current)
       channel.unsubscribe()
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Setup phase ────────────────────────────────────────────────
-  if (hostSetup) {
-    const diffOptions: Difficulty[] = ['2글자', '3글자', '섞기']
-    return (
-      <div className="flex flex-col gap-5 w-full" style={{ minHeight: 200 }}>
-        <div style={{ textAlign: 'center', fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>
-          글자 수 선택
-        </div>
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-          {diffOptions.map((d) => (
-            <button
-              key={d}
-              onPointerDown={() => setDifficulty(d)}
-              style={{
-                padding: '10px 22px',
-                borderRadius: 12,
-                fontSize: 14,
-                fontWeight: 700,
-                border: difficulty === d ? '2px solid var(--amber)' : '2px solid var(--border)',
-                background: difficulty === d ? 'rgba(245,158,11,0.15)' : 'var(--surface2)',
-                color: difficulty === d ? 'var(--amber)' : 'var(--text-muted)',
-                cursor: 'pointer',
-                transition: 'all 0.15s',
-              }}
-            >
-              {d}
-            </button>
-          ))}
-        </div>
-        <div style={{ textAlign: 'center', fontSize: 12, color: 'var(--text-dim)' }}>
-          {difficulty === '2글자' && `${POOL_2.length}개 문제 풀`}
-          {difficulty === '3글자' && `${POOL_3.length}개 문제 풀`}
-          {difficulty === '섞기' && `${QUESTION_POOL.length}개 문제 풀 (2·3글자 혼합)`}
-        </div>
-        <button
-          onPointerDown={handleHostStart}
-          className="btn-primary"
-          style={{ width: '100%', padding: '13px', borderRadius: 14, fontSize: 15 }}
-        >
-          게임 시작
-        </button>
-      </div>
-    )
-  }
-
-  if (!isHost && !ready) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-3" style={{ minHeight: 200 }}>
-        <div style={{ fontSize: 14, color: 'var(--text-muted)' }}>방장이 글자 수를 설정하는 중...</div>
-      </div>
-    )
-  }
 
   if (!ready) {
     return (

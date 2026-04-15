@@ -90,9 +90,12 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
   const voteMapRef = useRef<Record<string, string>>({})
   const playerCountRef = useRef(players.length)
   const isHostRef = useRef(isHost)
+  const liarUserIdRef = useRef('')
+  const onCompleteRef = useRef(onComplete)
 
   isHostRef.current = isHost
   playerCountRef.current = players.length
+  onCompleteRef.current = onComplete
 
   // 공개 시점에 승자 계산
   useEffect(() => {
@@ -116,6 +119,7 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
       .on('broadcast', { event: 'liar_start' }, ({ payload }: { payload: { keyword: string; liarUserId: string } }) => {
         setKeyword(payload.keyword)
         setLiarUserId(payload.liarUserId)
+        liarUserIdRef.current = payload.liarUserId
         setCardRevealed(false)
         setConfirmed(false)
         confirmCountRef.current = 0
@@ -206,11 +210,22 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
       .on('broadcast', { event: 'liar_reveal_show' }, () => {
         setLiarRevealed(true)
       })
-      .on('broadcast', { event: 'liar_next_round' }, ({ payload }: { payload: { round: number } }) => {
+      .on('broadcast', { event: 'liar_next_round' }, ({ payload }: { payload: { round: number; isLast?: boolean; liarWon?: boolean } }) => {
+        const wasLiar = userId === liarUserIdRef.current
+        const won = payload.liarWon ?? false
+        const roundScore = wasLiar ? (won ? 100 : 0) : (won ? 0 : 100)
+        accScoreRef.current += roundScore
+
+        if (payload.isLast) {
+          onCompleteRef.current(Math.round(accScoreRef.current / rounds))
+          return
+        }
+
         setCurrentRound(payload.round)
         setPhase('waiting')
         setKeyword('')
         setLiarUserId('')
+        liarUserIdRef.current = ''
         setCardRevealed(false)
         setConfirmed(false)
         setConfirmCount(0)
@@ -312,18 +327,13 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
   }
 
   function handleRoundComplete() {
-    const roundScore = computeMyScore(liarWon ?? false)
-    accScoreRef.current += roundScore
     const nextRound = currentRound + 1
-    if (nextRound <= rounds) {
-      channelRef.current?.send({
-        type: 'broadcast',
-        event: 'liar_next_round',
-        payload: { round: nextRound },
-      })
-    } else {
-      onComplete(Math.round(accScoreRef.current / rounds))
-    }
+    const isLast = nextRound > rounds
+    channelRef.current?.send({
+      type: 'broadcast',
+      event: 'liar_next_round',
+      payload: { round: nextRound, isLast, liarWon: liarWon ?? false },
+    })
   }
 
   const RoundBadge = rounds > 1 ? (
@@ -661,8 +671,16 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
   // Drumroll dots (1–3)
   const dots = '.'.repeat(Math.min(drumrollCount, 3))
 
+  const card = {
+    background: '#ffffff',
+    border: '1.5px solid #e2e8f0',
+    borderRadius: 14,
+    padding: '12px 16px',
+    boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+  }
+
   return (
-    <div className="flex flex-col items-center gap-5 text-center w-full" style={{ overflowY: 'auto', paddingBottom: 8 }}>
+    <div className="flex flex-col items-center gap-4 text-center w-full" style={{ overflowY: 'auto', paddingBottom: 8, background: '#f8fafc', borderRadius: 20, padding: 16 }}>
       {RoundBadge}
       <style>{`
         @keyframes popIn { from { transform: scale(0.5); opacity: 0 } to { transform: scale(1); opacity: 1 } }
@@ -672,7 +690,7 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
 
       {/* 투표 결과 */}
       <div style={{ width: '100%' }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8, textAlign: 'left' }}>
           투표 결과
         </div>
         <div className="flex flex-col gap-2 w-full">
@@ -681,20 +699,21 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
             const maxVotes = tally[sortedByVotes[0].userId] ?? 0
             const isTop = votes === maxVotes && votes > 0
             return (
-              <div key={p.userId} className="glass p-3" style={{
+              <div key={p.userId} style={{
+                ...card,
                 display: 'flex', alignItems: 'center', gap: 10,
-                border: isTop && i === 0 ? '1px solid #ef4444' : '1px solid var(--border)',
-                background: isTop && i === 0 ? 'rgba(239,68,68,0.06)' : 'var(--surface)',
+                border: isTop && i === 0 ? '1.5px solid #fca5a5' : '1.5px solid #e2e8f0',
+                background: isTop && i === 0 ? '#fff1f2' : '#ffffff',
               }}>
                 <span style={{ fontSize: 16, width: 24, textAlign: 'center' }}>
                   {p.userId === userId ? '🙋' : '👤'}
                 </span>
-                <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: 'var(--text)', textAlign: 'left' }}>
+                <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: '#0f172a', textAlign: 'left' }}>
                   {p.name}{p.userId === userId ? ' (나)' : ''}
                 </span>
                 <span style={{
                   fontFamily: "'Bebas Neue'", fontSize: 22,
-                  color: isTop && i === 0 ? '#ef4444' : 'var(--text-muted)',
+                  color: isTop && i === 0 ? '#dc2626' : '#94a3b8',
                 }}>
                   {votes}표
                 </span>
@@ -705,7 +724,7 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
       </div>
 
       {/* 정체 공개 */}
-      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.08em', textTransform: 'uppercase', width: '100%', textAlign: 'left' }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', letterSpacing: '0.1em', textTransform: 'uppercase', width: '100%', textAlign: 'left' }}>
         정체 공개
       </div>
 
@@ -713,12 +732,12 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
         <>
           {revealCountdown !== null ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '16px 0' }}>
-              <div style={{ fontSize: 48, fontFamily: "'Bebas Neue'", color: 'var(--amber)', lineHeight: 1 }}>{revealCountdown}</div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>잠시 후 공개됩니다!</div>
+              <div style={{ fontSize: 48, fontFamily: "'Bebas Neue'", color: '#f59e0b', lineHeight: 1 }}>{revealCountdown}</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#0f172a' }}>잠시 후 공개됩니다!</div>
             </div>
           ) : (
             <>
-              <p style={{ fontSize: 13, color: 'var(--text-dim)', margin: 0 }}>
+              <p style={{ fontSize: 13, color: '#64748b', margin: 0 }}>
                 {myTapped ? '다른 플레이어를 기다리는 중...' : '탭해서 라이어를 공개하세요'}
               </p>
               <button
@@ -726,20 +745,21 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
                 disabled={myTapped}
                 style={{
                   width: 120, height: 120, borderRadius: 24,
-                  background: myTapped ? 'var(--surface)' : 'var(--surface2)',
-                  border: myTapped ? '1px solid var(--border)' : '1px solid var(--amber)',
+                  background: myTapped ? '#f8fafc' : '#fffbeb',
+                  border: myTapped ? '1.5px solid #e2e8f0' : '1.5px solid #fde68a',
                   display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                   gap: 6, cursor: myTapped ? 'default' : 'pointer', fontSize: 40,
                   opacity: myTapped ? 0.5 : 1,
                   transition: 'all 0.2s ease',
+                  boxShadow: myTapped ? 'none' : '0 2px 12px rgba(245,158,11,0.15)',
                 }}
               >
                 🤥
-                <span style={{ fontSize: 12, color: myTapped ? 'var(--text-dim)' : 'var(--amber)', fontWeight: 600 }}>
+                <span style={{ fontSize: 12, color: myTapped ? '#94a3b8' : '#b45309', fontWeight: 700 }}>
                   {myTapped ? '완료' : '탭해서 공개'}
                 </span>
               </button>
-              <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>
+              <div style={{ fontSize: 12, color: '#94a3b8' }}>
                 {tapCount} / {players.length}명 준비 완료
               </div>
             </>
@@ -748,33 +768,32 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
       ) : (
         <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 10, animation: 'fadeUp 0.4s ease' }}>
           {/* Liar identity */}
-          <div className="glass" style={{ position: 'relative', display: 'flex', alignItems: 'center', border: '1px solid var(--border)', padding: '10px 16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 16 }}>
-              <span style={{ fontSize: 20 }}>🤥</span>
-              <span style={{ fontSize: 12, color: 'var(--text-dim)', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 600 }}>라이어</span>
+          <div style={{ ...card, position: 'relative', display: 'flex', alignItems: 'center', background: '#fff1f2', border: '1.5px solid #fca5a5' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginLeft: 4 }}>
+              <span style={{ fontSize: 18 }}>🤥</span>
+              <span style={{ fontSize: 11, color: '#94a3b8', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>라이어</span>
             </div>
-            <span style={{ position: 'absolute', left: 0, right: 0, textAlign: 'center', fontSize: 16, fontWeight: 800, color: 'var(--text)', pointerEvents: 'none' }}>
+            <span style={{ position: 'absolute', left: 0, right: 0, textAlign: 'center', fontSize: 16, fontWeight: 800, color: '#dc2626', pointerEvents: 'none' }}>
               {players.find(p => p.userId === liarUserId)?.name ?? '???'}
             </span>
           </div>
 
           {/* Win/loss result (before liar guess) */}
           {liarWon !== null && guessResult === null && (
-            <div className="glass" style={{
+            <div style={{
+              ...card,
               animation: 'popIn 0.3s ease',
-              border: '1px solid var(--border)',
-              borderLeft: `3px solid ${liarWon ? '#f59e0b' : '#4ade80'}`,
-              display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px',
+              background: liarWon ? '#fffbeb' : '#f0fdf4',
+              border: `1.5px solid ${liarWon ? '#fde68a' : '#86efac'}`,
+              borderLeft: `4px solid ${liarWon ? '#f59e0b' : '#22c55e'}`,
+              display: 'flex', alignItems: 'center', gap: 14,
             }}>
-              <span style={{ fontSize: 40, lineHeight: 1, flexShrink: 0 }}>{liarWon ? '🤥' : '🎉'}</span>
+              <span style={{ fontSize: 36, lineHeight: 1, flexShrink: 0 }}>{liarWon ? '🤥' : '🎉'}</span>
               <div style={{ textAlign: 'left' }}>
-                <div style={{
-                  fontSize: 18, fontWeight: 600, lineHeight: 1,
-                  color: liarWon ? '#f59e0b' : '#4ade80',
-                }}>
+                <div style={{ fontSize: 17, fontWeight: 700, lineHeight: 1, color: liarWon ? '#b45309' : '#15803d' }}>
                   {liarWon ? '라이어 승리' : '시민 승리'}
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 3 }}>
+                <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
                   {liarWon
                     ? '라이어가 투표에서 살아남았습니다'
                     : `${players.find(p => p.userId === accusedId)?.name ?? '???'}이(가) 라이어로 지목됐습니다`}
@@ -785,8 +804,8 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
 
           {/* Liar's guess input */}
           {isLiar && guessResult === null && (
-            <div className="glass p-3" style={{ border: '1px solid var(--border)', textAlign: 'left' }}>
-              <div style={{ fontSize: 12, color: 'var(--amber)', fontWeight: 700, marginBottom: 6 }}>💡 최후의 기회 — 주제를 맞춰보세요</div>
+            <div style={{ ...card, background: '#fffbeb', border: '1.5px solid #fde68a', textAlign: 'left' }}>
+              <div style={{ fontSize: 12, color: '#b45309', fontWeight: 700, marginBottom: 8 }}>💡 최후의 기회 — 주제를 맞춰보세요</div>
               <input
                 type="text"
                 value={liarGuess}
@@ -795,8 +814,8 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
                 placeholder="키워드 입력..."
                 style={{
                   width: '100%', padding: '9px 12px', borderRadius: 10,
-                  border: '1px solid var(--border)', background: 'var(--surface2)',
-                  color: 'var(--text)', fontSize: 14, outline: 'none',
+                  border: '1.5px solid #e2e8f0', background: '#ffffff',
+                  color: '#0f172a', fontSize: 14, outline: 'none',
                   boxSizing: 'border-box', marginBottom: 8,
                 }}
               />
@@ -805,10 +824,11 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
                 disabled={!liarGuess.trim()}
                 style={{
                   width: '100%', padding: '10px 0', borderRadius: 10,
-                  background: liarGuess.trim() ? 'var(--amber)' : 'var(--surface2)',
-                  color: liarGuess.trim() ? '#1a1410' : 'var(--text-dim)',
+                  background: liarGuess.trim() ? '#f59e0b' : '#f1f5f9',
+                  color: liarGuess.trim() ? '#ffffff' : '#94a3b8',
                   fontWeight: 700, fontSize: 14, border: 'none',
                   cursor: liarGuess.trim() ? 'pointer' : 'default',
+                  transition: 'all 0.15s ease',
                 }}
               >
                 정답 제출
@@ -816,84 +836,66 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
             </div>
           )}
 
-          {/* Keyword reveal + liar guessing indicator (non-liar, 결과 나오기 전만) */}
+          {/* Keyword reveal + liar guessing indicator (non-liar) */}
           {!isLiar && (
             <>
-              <div className="glass" style={{ position: 'relative', display: 'flex', alignItems: 'center', border: '1px solid var(--border)', padding: '10px 16px' }}>
-                <span style={{ fontSize: 12, color: 'var(--text-dim)', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 600, marginLeft: 32 }}>이번 단어</span>
-                <span style={{ position: 'absolute', left: 0, right: 0, textAlign: 'center', fontSize: 16, fontWeight: 800, color: 'var(--text)', pointerEvents: 'none' }}>
+              <div style={{ ...card, position: 'relative', display: 'flex', alignItems: 'center', background: '#f8fafc' }}>
+                <span style={{ fontSize: 11, color: '#94a3b8', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700, marginLeft: 4 }}>이번 단어</span>
+                <span style={{ position: 'absolute', left: 0, right: 0, textAlign: 'center', fontSize: 16, fontWeight: 800, color: '#0f172a', pointerEvents: 'none' }}>
                   {keyword}
                 </span>
               </div>
               {guessResult === null && (
-                <div className="glass p-3" style={{ border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 24, animation: 'pulse 1s ease-in-out infinite' }}>✏️</span>
+                <div style={{ ...card, display: 'flex', alignItems: 'center', gap: 10, background: '#eff6ff', border: '1.5px solid #bfdbfe' }}>
+                  <span style={{ fontSize: 22, animation: 'pulse 1s ease-in-out infinite' }}>✏️</span>
                   <div style={{ textAlign: 'left' }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>라이어가 정답을 맞추는 중...</div>
-                    <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 2 }}>결과를 기다려 주세요</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#1d4ed8' }}>라이어가 정답을 맞추는 중...</div>
+                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>결과를 기다려 주세요</div>
                   </div>
                 </div>
               )}
             </>
           )}
 
-          {/* Guess result — 라이어/시민 시점 분리 */}
+          {/* Guess result */}
           {guessResult !== null && (() => {
             const liarCorrect = guessResult === 'correct'
-            // 라이어 시점
             if (isLiar) {
               return liarCorrect ? (
-                <div className="glass" style={{
-                  animation: 'popIn 0.3s ease', border: '1px solid var(--border)',
-                  borderLeft: '3px solid #f59e0b',
-                  display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px',
-                }}>
-                  <span style={{ fontSize: 40, lineHeight: 1, flexShrink: 0 }}>🤥</span>
+                <div style={{ ...card, animation: 'popIn 0.3s ease', background: '#fffbeb', border: '1.5px solid #fde68a', borderLeft: '4px solid #f59e0b', display: 'flex', alignItems: 'center', gap: 14 }}>
+                  <span style={{ fontSize: 36, lineHeight: 1, flexShrink: 0 }}>🤥</span>
                   <div style={{ textAlign: 'left' }}>
-                    <div style={{ fontSize: 18, fontWeight: 600, lineHeight: 1, color: '#f59e0b' }}>역전! 라이어 승리</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 3 }}>{`"${keyword}" 정답!`}</div>
+                    <div style={{ fontSize: 17, fontWeight: 700, color: '#b45309' }}>역전! 라이어 승리</div>
+                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 3 }}>{`"${keyword}" 정답!`}</div>
                   </div>
                 </div>
               ) : (
-                <div className="glass" style={{
-                  animation: 'popIn 0.3s ease', border: '1px solid var(--border)',
-                  borderLeft: '3px solid var(--text-dim)',
-                  display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px',
-                }}>
-                  <span style={{ fontSize: 40, lineHeight: 1, flexShrink: 0 }}>😢</span>
+                <div style={{ ...card, animation: 'popIn 0.3s ease', background: '#fff1f2', border: '1.5px solid #fecaca', borderLeft: '4px solid #ef4444', display: 'flex', alignItems: 'center', gap: 14 }}>
+                  <span style={{ fontSize: 36, lineHeight: 1, flexShrink: 0 }}>😢</span>
                   <div style={{ textAlign: 'left' }}>
-                    <div style={{ fontSize: 16 }}>
-                      <span style={{ color: '#ef4444', fontWeight: 700 }}>땡!</span>
-                      <span style={{ color: 'var(--text)', fontWeight: 600 }}> 정답은 </span>
-                      <span style={{ color: 'var(--text)', fontWeight: 800 }}>"{keyword}"</span>
-                      <span style={{ color: 'var(--text)', fontWeight: 600 }}> 입니다!</span>
+                    <div style={{ fontSize: 15, color: '#0f172a' }}>
+                      <span style={{ color: '#dc2626', fontWeight: 700 }}>땡!</span>
+                      <span style={{ fontWeight: 600 }}> 정답은 </span>
+                      <span style={{ fontWeight: 800 }}>"{keyword}"</span>
+                      <span style={{ fontWeight: 600 }}> 입니다</span>
                     </div>
                   </div>
                 </div>
               )
             }
-            // 시민 시점
             return liarCorrect ? (
-              <div className="glass" style={{
-                animation: 'popIn 0.3s ease', border: '1px solid var(--border)',
-                borderLeft: '3px solid var(--text-dim)',
-                display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px',
-              }}>
-                <span style={{ fontSize: 40, lineHeight: 1, flexShrink: 0 }}>😱</span>
+              <div style={{ ...card, animation: 'popIn 0.3s ease', background: '#fff1f2', border: '1.5px solid #fecaca', borderLeft: '4px solid #ef4444', display: 'flex', alignItems: 'center', gap: 14 }}>
+                <span style={{ fontSize: 36, lineHeight: 1, flexShrink: 0 }}>😱</span>
                 <div style={{ textAlign: 'left' }}>
-                  <div style={{ fontSize: 18, fontWeight: 600, lineHeight: 1, color: 'var(--text-muted)' }}>라이어가 정답을 맞췄습니다</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 3 }}>{`정답: "${keyword}"`}</div>
+                  <div style={{ fontSize: 17, fontWeight: 700, color: '#b91c1c' }}>라이어가 정답을 맞췄습니다</div>
+                  <div style={{ fontSize: 12, color: '#64748b', marginTop: 3 }}>{`정답: "${keyword}"`}</div>
                 </div>
               </div>
             ) : (
-              <div className="glass" style={{
-                animation: 'popIn 0.3s ease', border: '1px solid var(--border)',
-                borderLeft: '3px solid #4ade80',
-                display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px',
-              }}>
-                <span style={{ fontSize: 40, lineHeight: 1, flexShrink: 0 }}>🎉</span>
+              <div style={{ ...card, animation: 'popIn 0.3s ease', background: '#f0fdf4', border: '1.5px solid #86efac', borderLeft: '4px solid #22c55e', display: 'flex', alignItems: 'center', gap: 14 }}>
+                <span style={{ fontSize: 36, lineHeight: 1, flexShrink: 0 }}>🎉</span>
                 <div style={{ textAlign: 'left' }}>
-                  <div style={{ fontSize: 18, fontWeight: 600, lineHeight: 1, color: '#4ade80' }}>라이어가 틀렸습니다!</div>
+                  <div style={{ fontSize: 17, fontWeight: 700, color: '#15803d' }}>라이어가 틀렸습니다!</div>
                 </div>
               </div>
             )
@@ -902,13 +904,21 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
           {isHost ? (
             <button
               onClick={handleRoundComplete}
-              className="btn-primary"
-              style={{ marginTop: 24, ...(currentRound < rounds ? { background: 'var(--amber)', color: '#1a1410' } : {}) }}
+              disabled={guessResult === null}
+              style={{
+                marginTop: 16, width: '100%', padding: '14px 0', borderRadius: 14,
+                background: guessResult === null ? '#f1f5f9' : '#0f172a',
+                color: guessResult === null ? '#94a3b8' : '#ffffff',
+                fontWeight: 700, fontSize: 15, border: 'none',
+                cursor: guessResult === null ? 'not-allowed' : 'pointer',
+                transition: 'all 0.15s ease',
+                boxShadow: guessResult === null ? 'none' : '0 2px 12px rgba(0,0,0,0.15)',
+              }}
             >
               {currentRound < rounds ? `${currentRound + 1}라운드 시작하기` : '완료'}
             </button>
           ) : (
-            <div style={{ textAlign: 'center', fontSize: 13, color: 'var(--text-dim)', padding: '12px 0', marginTop: 24 }}>
+            <div style={{ textAlign: 'center', fontSize: 13, color: '#94a3b8', padding: '12px 0', marginTop: 8 }}>
               {currentRound < rounds ? '방장이 다음 라운드를 시작할 때까지 기다려 주세요' : '방장이 완료를 누를 때까지 기다려 주세요'}
             </div>
           )}

@@ -93,6 +93,7 @@ export default function MafiaGameBattle({ onComplete, roomCode, userId, myName, 
   // ── round state ──
   const [currentRound, setCurrentRound] = useState(1)
   const [roundWins, setRoundWins] = useState(0)
+  const [canFinish, setCanFinish] = useState(false)
   const currentRoundRef = useRef(1)
   const roundWinsRef = useRef(0)
   const roundsRef = useRef(rounds)
@@ -356,7 +357,7 @@ export default function MafiaGameBattle({ onComplete, roomCode, userId, myName, 
             const won = (w === 'mafia' && isMafia) || (w === 'citizens' && !isMafia)
             if (won) { roundWinsRef.current += 1; setRoundWins(roundWinsRef.current) }
             if (currentRoundRef.current >= roundsRef.current) {
-              onCompleteRef.current(roundWinsRef.current * 100)
+              setCanFinish(true)
             }
           }, 2000)
         } else {
@@ -490,7 +491,7 @@ export default function MafiaGameBattle({ onComplete, roomCode, userId, myName, 
         </div>
 
         <button className="btn-primary" onClick={deal} disabled={!isValid} style={{ opacity: isValid ? 1 : 0.4, cursor: isValid ? 'pointer' : 'default' }}>
-          역할 배분하기
+          게임 시작하기
         </button>
       </div>
     )
@@ -1149,13 +1150,19 @@ export default function MafiaGameBattle({ onComplete, roomCode, userId, myName, 
                 const rs = ROLE_STYLE[role]
                 const isMe = p.userId === userId
                 const survived = aliveIds.includes(p.userId)
+                const isMafiaRole = role === '마피아'
+                const rowBg     = isMafiaRole ? 'rgba(239,68,68,0.14)'       : 'rgba(96,165,250,0.10)'
+                const rowBorder = isMafiaRole ? 'rgba(239,68,68,0.40)'       : 'rgba(96,165,250,0.30)'
+                const badgeBg   = isMafiaRole ? 'rgba(239,68,68,0.22)'       : 'rgba(96,165,250,0.18)'
+                const badgeColor= isMafiaRole ? '#fca5a5'                    : '#93c5fd'
+                const meRing    = isMe ? (isMafiaRole ? '1.5px solid rgba(239,68,68,0.75)' : '1.5px solid rgba(96,165,250,0.65)') : `1px solid ${rowBorder}`
                 return (
-                  <div key={p.userId} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 12px', borderRadius: 12, background: isMe ? `${rs.color}14` : 'rgba(255,255,255,0.03)', border: `1px solid ${isMe ? rs.color + '35' : 'rgba(255,255,255,0.06)'}`, opacity: survived ? 1 : 0.5 }}>
+                  <div key={p.userId} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 12px', borderRadius: 12, background: rowBg, border: meRing, opacity: survived ? 1 : 0.45 }}>
                     <span style={{ fontSize: 18 }}>{survived ? rs.emoji : '💀'}</span>
                     <span style={{ flex: 1, fontSize: 14, fontWeight: isMe ? 700 : 500, color: survived ? '#f1f5f9' : 'rgba(255,255,255,0.35)', textDecoration: survived ? 'none' : 'line-through' }}>
                       {p.name}{isMe ? ' (나)' : ''}
                     </span>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: rs.color, background: rs.bg, padding: '3px 10px', borderRadius: 8, border: `1px solid ${rs.border}40` }}>{role}</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: badgeColor, background: badgeBg, padding: '3px 10px', borderRadius: 8 }}>{role}</span>
                   </div>
                 )
               })}
@@ -1163,26 +1170,37 @@ export default function MafiaGameBattle({ onComplete, roomCode, userId, myName, 
           </div>
 
           {/* 다음 라운드 / 종료 */}
-          {rounds > 1 && (
-            <div style={{ width: '100%', maxWidth: 380, animation: 'go-fadeUp 0.4s ease 0.4s both' }}>
-              {currentRound < rounds ? (
-                isHost ? (
-                  <button
-                    onClick={() => channelRef.current?.send({ type: 'broadcast', event: 'mafia_next_round', payload: {} })}
-                    style={{ width: '100%', padding: '15px', borderRadius: 16, border: `1.5px solid ${citizensWin ? 'rgba(96,165,250,0.5)' : 'rgba(239,68,68,0.5)'}`, background: citizensWin ? 'rgba(96,165,250,0.12)' : 'rgba(239,68,68,0.12)', color: '#ffffff', fontSize: 15, fontWeight: 700, cursor: 'pointer', letterSpacing: '0.03em' }}
-                  >
-                    다음 라운드 시작 ({currentRound + 1} / {rounds}) →
-                  </button>
-                ) : (
-                  <div style={{ textAlign: 'center', fontSize: 12, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.06em' }}>방장이 다음 라운드를 시작할 때까지 기다리세요</div>
-                )
+          <div style={{ width: '100%', maxWidth: 380, animation: 'go-fadeUp 0.4s ease 0.4s both' }}>
+            {currentRound < rounds ? (
+              isHost ? (
+                <button
+                  onClick={() => channelRef.current?.send({ type: 'broadcast', event: 'mafia_next_round', payload: {} })}
+                  style={{ width: '100%', padding: '15px', borderRadius: 16, border: `1.5px solid ${citizensWin ? 'rgba(96,165,250,0.5)' : 'rgba(239,68,68,0.5)'}`, background: citizensWin ? 'rgba(96,165,250,0.12)' : 'rgba(239,68,68,0.12)', color: '#ffffff', fontSize: 15, fontWeight: 700, cursor: 'pointer', letterSpacing: '0.03em' }}
+                >
+                  다음 라운드 시작 ({currentRound + 1} / {rounds}) →
+                </button>
               ) : (
-                <div style={{ textAlign: 'center', fontSize: 12, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.06em' }}>
-                  전체 {rounds}라운드 종료 · 최종 {roundWins}승
-                </div>
-              )}
-            </div>
-          )}
+                <div style={{ textAlign: 'center', fontSize: 12, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.06em' }}>방장이 다음 라운드를 시작할 때까지 기다리세요</div>
+              )
+            ) : (
+              <button
+                onClick={() => { if (canFinish) onCompleteRef.current(roundWinsRef.current * 100) }}
+                disabled={!canFinish}
+                style={{
+                  width: '100%', padding: '15px', borderRadius: 16,
+                  border: `1.5px solid ${canFinish ? (citizensWin ? 'rgba(96,165,250,0.6)' : 'rgba(239,68,68,0.6)') : 'rgba(255,255,255,0.1)'}`,
+                  background: canFinish ? (citizensWin ? 'rgba(96,165,250,0.15)' : 'rgba(239,68,68,0.15)') : 'rgba(255,255,255,0.04)',
+                  color: canFinish ? '#ffffff' : 'rgba(255,255,255,0.3)',
+                  fontSize: 15, fontWeight: 700,
+                  cursor: canFinish ? 'pointer' : 'default',
+                  letterSpacing: '0.03em',
+                  transition: 'all 0.3s ease',
+                }}
+              >
+                {canFinish ? '최종 결과 확인 →' : '결과 집계 중...'}
+              </button>
+            )}
+          </div>
         </div>
       </div>
     )

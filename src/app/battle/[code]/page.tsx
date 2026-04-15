@@ -98,6 +98,10 @@ export default function BattleRoomPage() {
   const [needsName, setNeedsName] = useState(false)
   const [nameInput, setNameInput] = useState('')
 
+  // 초성게임 글자 수 선택 (local only)
+  const [choSeongDifficulty, setChoSeongDifficulty] = useState<'2글자' | '3글자' | '섞기'>('섞기')
+  const choSeongDifficultyRef = useRef<'2글자' | '3글자' | '섞기'>('섞기')
+
   // Drag UI state (local only, no need for reducer)
   const [orderDragIdx, setOrderDragIdx] = useState<number | null>(null)
   const [orderDragOver, setOrderDragOver] = useState<number | null>(null)
@@ -230,6 +234,10 @@ export default function BattleRoomPage() {
         selectedRoundsRef.current = rounds
         const order: string[] = payload.playerOrder ?? playersRef.current.map((p: Player) => p.userId)
         playerOrderRef.current = order
+        if (payload.choSeongDifficulty) {
+          choSeongDifficultyRef.current = payload.choSeongDifficulty
+          setChoSeongDifficulty(payload.choSeongDifficulty)
+        }
         dispatch({ type: 'GAME_INIT', game: payload.gameKey, rounds, order })
 
         // 라이어/마피아는 자체 카운트다운이 있으므로 바로 playing으로
@@ -318,7 +326,7 @@ export default function BattleRoomPage() {
     selectedRoundsRef.current = n
     dispatch({ type: 'SET_ROUNDS', rounds: n })
     const startAt = Date.now() + 4000
-    channelRef.current?.send({ type: 'broadcast', event: 'start', payload: { gameKey: selectedGame, startAt, rounds: n, playerOrder: playerOrderRef.current } })
+    channelRef.current?.send({ type: 'broadcast', event: 'start', payload: { gameKey: selectedGame, startAt, rounds: n, playerOrder: playerOrderRef.current, choSeongDifficulty: choSeongDifficultyRef.current } })
   }
 
   function handleGameComplete(score: number) {
@@ -460,6 +468,27 @@ export default function BattleRoomPage() {
             <div style={{ textAlign: 'center', fontSize: 13, color: 'var(--text-dim)' }}>
               선택: <span style={{ color: 'var(--amber)', fontWeight: 700 }}>{selectedRounds}라운드</span>
             </div>
+
+            {/* 초성게임 글자 수 선택 */}
+            {selectedGame === 'choseong' && (
+              <div className="flex flex-col gap-2">
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.06em' }}>글자 수</div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {(['2글자', '3글자', '섞기'] as const).map(d => (
+                    <button
+                      key={d}
+                      onClick={() => { setChoSeongDifficulty(d); choSeongDifficultyRef.current = d }}
+                      style={{
+                        flex: 1, padding: '12px 0', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s',
+                        border: choSeongDifficulty === d ? '2px solid var(--amber)' : '2px solid var(--border)',
+                        background: choSeongDifficulty === d ? 'rgba(245,158,11,0.12)' : 'var(--surface)',
+                        color: choSeongDifficulty === d ? 'var(--amber)' : 'var(--text-muted)',
+                      }}
+                    >{d}</button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* 플레이어 순서 (턴제 게임만) */}
             {selectedGame === 'threesixnine' && playerOrder.length > 1 && (
@@ -694,6 +723,7 @@ export default function BattleRoomPage() {
               myName={myName}
               isHost={amHost}
               rounds={selectedRounds}
+              difficulty={choSeongDifficulty}
             />
           )}
           {selectedGame === 'liar'        && <LiarGameBattle    onComplete={handleGameComplete} roomCode={code} userId={userId} myName={myName} players={players} isHost={amHost} rounds={selectedRounds} />}
@@ -734,17 +764,17 @@ export default function BattleRoomPage() {
     }
     const gcMap: Record<string, GCfg> = {
       mafia: {
-        accent: '#f59e0b', accentDim: 'rgba(245,158,11,0.6)', accentGlow: 'rgba(245,158,11,0.4)',
-        bg: 'linear-gradient(180deg, #0a0f1e 0%, #111827 60%, #0d1117 100%)',
-        trophy: '🏆', achievement: '마피아 우승자',
+        accent: '#f59e0b', accentDim: 'rgba(245,158,11,0.75)', accentGlow: 'rgba(245,158,11,0.3)',
+        bg: 'linear-gradient(180deg, #1c2333 0%, #252e42 60%, #1c2333 100%)',
+        trophy: '🕵️', achievement: '마피아 우승자',
         rankNameColor: '#fde68a', light: false,
         renderScore: (s, i) => (
           <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 24, fontWeight: 900, color: i === 0 ? '#fbbf24' : 'rgba(255,255,255,0.55)', lineHeight: 1 }}>{s}</div>
-            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', fontWeight: 600 }}>점</div>
+            <div style={{ fontSize: 24, fontWeight: 900, color: i === 0 ? '#fbbf24' : 'rgba(255,255,255,0.65)', lineHeight: 1 }}>{s}</div>
+            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>점</div>
           </div>
         ),
-        renderFirstScore: (s) => <div style={{ fontSize: 13, color: 'rgba(245,158,11,0.7)', marginTop: 4 }}>{s}점</div>,
+        renderFirstScore: (s) => <div style={{ fontSize: 13, color: '#f59e0b', marginTop: 4 }}>{s}점</div>,
       },
       nunchi: {
         accent: '#059669', accentDim: 'rgba(5,150,105,0.7)', accentGlow: 'rgba(5,150,105,0.2)',
@@ -792,17 +822,17 @@ export default function BattleRoomPage() {
         renderFirstScore: (s) => <div style={{ fontSize: 13, color: '#7c3aed', marginTop: 4 }}>{s}점</div>,
       },
       liar: {
-        accent: '#f87171', accentDim: 'rgba(248,113,113,0.65)', accentGlow: 'rgba(248,113,113,0.35)',
-        bg: 'linear-gradient(180deg, #140404 0%, #1c0808 60%, #0e0404 100%)',
+        accent: '#dc2626', accentDim: 'rgba(220,38,38,0.65)', accentGlow: 'rgba(220,38,38,0.2)',
+        bg: 'linear-gradient(180deg, #fff1f2 0%, #ffffff 100%)',
         trophy: '🃏', achievement: '최고의 라이어',
-        rankNameColor: '#fecaca', light: false,
+        rankNameColor: '#991b1b', light: true,
         renderScore: (s, i) => (
           <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 24, fontWeight: 900, color: i === 0 ? '#f87171' : 'rgba(255,255,255,0.55)', lineHeight: 1 }}>{s}</div>
-            <div style={{ fontSize: 10, color: 'rgba(248,113,113,0.5)', fontWeight: 700 }}>점</div>
+            <div style={{ fontSize: 24, fontWeight: 900, color: i === 0 ? '#dc2626' : '#94a3b8', lineHeight: 1 }}>{s}</div>
+            <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700 }}>점</div>
           </div>
         ),
-        renderFirstScore: (s) => <div style={{ fontSize: 13, color: 'rgba(248,113,113,0.8)', marginTop: 4 }}>{s}점</div>,
+        renderFirstScore: (s) => <div style={{ fontSize: 13, color: '#dc2626', marginTop: 4 }}>{s}점</div>,
       },
       balancegame: {
         accent: '#0891b2', accentDim: 'rgba(8,145,178,0.7)', accentGlow: 'rgba(8,145,178,0.2)',
@@ -829,11 +859,11 @@ export default function BattleRoomPage() {
     const L = gc.light
     const txt      = L ? '#0f172a' : '#f1f5f9'
     const txtMuted = L ? '#64748b' : 'rgba(255,255,255,0.5)'
-    const cardBg   = L ? '#ffffff' : 'rgba(255,255,255,0.03)'
+    const cardBg   = L ? '#ffffff' : '#2e4a6e'
     const cardBorder = (highlight: boolean) =>
-      highlight ? `1.5px solid ${gc.accent}` : L ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.07)'
+      highlight ? `1.5px solid ${gc.accent}` : L ? '1px solid #e2e8f0' : '1px solid #3d4e6a'
     const rankColors = [gc.accent, L ? '#64748b' : '#94a3b8', L ? '#b45309' : '#b45309']
-    const rankBg    = [L ? '#f8fcff' : `${gc.accent}1e`, L ? '#f8fcff' : 'rgba(148,163,184,0.08)', L ? '#f8fcff' : 'rgba(180,83,9,0.10)']
+    const rankBg    = [L ? '#f8fcff' : '#2e4a6e', L ? '#f8fcff' : '#2e4a6e', L ? '#f8fcff' : '#2e4a6e']
 
     return (
       <main className="flex flex-col flex-1 pb-8 gap-0" style={{ overflowY: 'auto', background: gc.bg, position: 'relative' }}>
@@ -897,9 +927,9 @@ export default function BattleRoomPage() {
                 style={{
                   display: 'flex', alignItems: 'center', gap: 14,
                   padding: '13px 16px', borderRadius: 16,
-                  background: isMe ? `${gc.accent}12` : bg,
+                  background: isMe ? (L ? `${gc.accent}12` : '#4a3a1a') : bg,
                   border: cardBorder(isMe),
-                  boxShadow: isMe ? `0 2px 12px ${gc.accent}22` : L ? '0 1px 4px rgba(0,0,0,0.06)' : 'none',
+                  boxShadow: isMe ? `0 2px 12px ${gc.accent}40` : L ? '0 1px 4px rgba(0,0,0,0.06)' : 'none',
                   animation: `rs-fadeUp 0.4s ease ${0.05 * i + 0.15}s both`,
                 }}
               >
@@ -973,7 +1003,7 @@ export default function BattleRoomPage() {
           {amHost && (
             <button
               onClick={handleSameGame}
-              style={{ width: '100%', padding: '14px', borderRadius: 14, background: L ? '#f1f5f9' : 'rgba(255,255,255,0.08)', border: L ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)', color: L ? '#334155' : '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', letterSpacing: '0.02em' }}
+              style={{ width: '100%', padding: '14px', borderRadius: 14, background: L ? gc.accent : 'rgba(255,255,255,0.08)', border: 'none', color: '#ffffff', fontSize: 14, fontWeight: 700, cursor: 'pointer', letterSpacing: '0.02em', boxShadow: L ? `0 2px 12px ${gc.accent}55` : 'none' }}
             >
               🔄 같은 게임 한 판 더
             </button>

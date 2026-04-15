@@ -143,6 +143,7 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
   function handleSlotTap(slotIdx: number) {
     if (phaseRef.current !== 'playing') return
     if (submittedRef.current) return
+    if (slotIdx > 0 && !roundClaimsRef.current.some(c => c.slotIdx === slotIdx - 1)) return
     submittedRef.current = true
     myChoiceRef.current = slotIdx
     setMyChoice(slotIdx)
@@ -338,6 +339,8 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
           const isSafe      = isShowing && claimers.length === 1
           const isEmpty     = isShowing && claimers.length === 0
           const taken       = !isShowing && claimers.length > 0
+          const prevClaimed = i === 0 || roundClaims.some(c => c.slotIdx === i - 1)
+          const locked      = !isShowing && myChoice === null && !prevClaimed
 
           // Colour scheme
           let bg = '#ffffff'
@@ -345,11 +348,14 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
           let numColor = '#334155'
           let shadow = '0 1px 4px rgba(0,0,0,0.06)'
 
-          if (!isShowing && isMyChoice) {
+          const submitted = myChoice !== null
+          if (locked || (submitted && !isMyChoice && !isShowing)) {
+            bg = '#f8fafc'; border = '1.5px solid #e2e8f0'; numColor = '#cbd5e1'
+          } else if (!isShowing && isMyChoice) {
             bg = '#eff6ff'; border = '2px solid #3b82f6'; numColor = '#1d4ed8'
             shadow = '0 0 0 4px rgba(59,130,246,0.15)'
           } else if (!isShowing && taken) {
-            bg = '#fafafa'; border = '1.5px solid #cbd5e1'; numColor = '#94a3b8'
+            bg = '#fff7ed'; border = '1.5px solid #fed7aa'; numColor = '#f97316'
           } else if (isShowing) {
             if (isCollision) { bg = '#fff1f2'; border = '2px solid #fca5a5'; numColor = '#ef4444' }
             else if (isSafe) { bg = '#f0fdf4'; border = '2px solid #86efac'; numColor = '#16a34a' }
@@ -362,14 +368,15 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
             <button
               key={i}
               onClick={() => handleSlotTap(i)}
-              disabled={isShowing || myChoice !== null}
+              disabled={isShowing || myChoice !== null || locked}
               style={{
                 position: 'relative',
                 display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                 gap: 4, borderRadius: 18,
                 aspectRatio: '1',
                 border, background: bg, boxShadow: shadow,
-                cursor: isShowing || myChoice !== null ? 'default' : 'pointer',
+                cursor: isShowing || myChoice !== null || locked ? 'default' : 'pointer',
+                opacity: (locked || (myChoice !== null && !isMyChoice && !isShowing)) ? 0.4 : 1,
                 transition: 'all 0.15s ease',
                 WebkitTapHighlightColor: 'transparent',
                 padding: 8,
