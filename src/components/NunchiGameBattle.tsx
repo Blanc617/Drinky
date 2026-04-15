@@ -203,7 +203,7 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
   if (phase === 'intro') {
     return (
       <div className="flex flex-col items-center justify-center gap-4 text-center w-full" style={{ minHeight: 200 }}>
-        <div style={{ fontSize: 14, color: 'var(--text-muted)' }}>게임 준비 중...</div>
+        <div style={{ fontSize: 14, color: '#94a3b8' }}>게임 준비 중...</div>
       </div>
     )
   }
@@ -211,13 +211,13 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
   if (phase === 'result') {
     return (
       <div className="flex flex-col items-center gap-4 text-center">
-        <div style={{ fontFamily: "'Bebas Neue'", fontSize: 36, color: 'var(--text-muted)', letterSpacing: '0.05em' }}>
+        <div style={{ fontFamily: "'Bebas Neue'", fontSize: 32, color: '#64748b', letterSpacing: '0.05em' }}>
           게임 완료
         </div>
-        <div style={{ fontFamily: "'Bebas Neue'", fontSize: 80, color: 'var(--amber)', lineHeight: 1, textShadow: '0 0 30px rgba(245,158,11,0.5)' }}>
+        <div style={{ fontFamily: "'Bebas Neue'", fontSize: 80, color: '#f59e0b', lineHeight: 1 }}>
           {myPointsRef.current}<span style={{ fontSize: 32 }}>점</span>
         </div>
-        <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>결과 저장 중...</div>
+        <div style={{ fontSize: 13, color: '#94a3b8' }}>결과 저장 중...</div>
       </div>
     )
   }
@@ -229,75 +229,134 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
     roundClaims.filter(c => c.slotIdx === i)
   )
 
-
-  const resultColor =
-    lastResult === 'success' ? '#4ade80' :
-    lastResult === 'collision' ? '#ef4444' : '#f97316'
-
-  const collisionLabel = collisionNames.length > 0
-    ? `💥 ${collisionNames.join(', ')}와(과) 충돌! +0점`
-    : '💥 충돌! +0점'
+  // Timer bar width
+  const timerPct = isShowing ? 0 : (timeLeft / ROUND_TIME) * 100
+  const timerColor = timeLeft <= 2 ? '#ef4444' : timeLeft <= 3 ? '#f97316' : '#3b82f6'
 
   return (
-    <div className="flex flex-col items-center gap-5 w-full">
-      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.1em', textAlign: 'center' }}>
-        ROUND {round + 1} / {totalRounds}
-      </div>
+    <div className="flex flex-col items-center gap-4 w-full">
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', fontSize: 13 }}>
-        <span style={{
-          fontFamily: "'Bebas Neue'", fontSize: 28, lineHeight: 1,
-          color: timeLeft <= 2 ? '#ef4444' : 'var(--amber)',
-          transition: 'color 0.3s',
+      {/* Header: round + score */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', letterSpacing: '0.08em' }}>
+          ROUND {round + 1} / {totalRounds}
+        </div>
+        <div style={{
+          background: myPoints > 0 ? '#f0fdf4' : '#f8fafc',
+          border: `1.5px solid ${myPoints > 0 ? '#86efac' : '#e2e8f0'}`,
+          borderRadius: 20, padding: '3px 12px',
+          fontSize: 13, fontWeight: 700,
+          color: myPoints > 0 ? '#15803d' : '#94a3b8',
         }}>
-          {isShowing ? '✓' : timeLeft}
-        </span>
-        <span style={{ color: myPoints > 0 ? '#4ade80' : 'var(--text-dim)', fontWeight: 700 }}>
           {myPoints}점
-        </span>
+        </div>
       </div>
 
+      {/* Timer bar */}
+      <div style={{ width: '100%', height: 6, background: '#f1f5f9', borderRadius: 99, overflow: 'hidden' }}>
+        <div style={{
+          height: '100%', borderRadius: 99,
+          width: `${timerPct}%`,
+          background: timerColor,
+          transition: 'width 0.9s linear, background 0.3s',
+        }} />
+      </div>
+
+      {/* Timer number + status */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+        {!isShowing ? (
+          <div style={{
+            fontFamily: "'Bebas Neue'", fontSize: 42, lineHeight: 1,
+            color: timeLeft <= 2 ? '#ef4444' : '#1e293b',
+            transition: 'color 0.3s',
+          }}>
+            {timeLeft}
+          </div>
+        ) : (
+          <div style={{ fontSize: 22 }}>✓</div>
+        )}
+      </div>
+
+      {/* Rule hint — only before first choice */}
+      {!isShowing && myChoice === null && (
+        <div style={{
+          background: '#eff6ff',
+          border: '1px solid #bfdbfe',
+          borderRadius: 10, padding: '6px 14px',
+          fontSize: 12, color: '#1d4ed8', fontWeight: 600,
+          textAlign: 'center',
+        }}>
+          번호를 하나 선점하세요 — 혼자 골라야 점수!
+        </div>
+      )}
+
+      {/* Waiting hint after choice */}
+      {!isShowing && myChoice !== null && (
+        <div style={{ fontSize: 12, color: '#64748b', textAlign: 'center', fontWeight: 500 }}>
+          선택 완료 · 다른 플레이어 기다리는 중...
+        </div>
+      )}
+
+      {/* Result banner */}
       {isShowing && lastResult && (
-        <div style={{ fontSize: 16, fontWeight: 700, color: resultColor, textAlign: 'center' }}>
-          {lastResult === 'success' ? `✓ 성공! +${lastPoints}점` :
-           lastResult === 'collision' ? collisionLabel : '⏱ 선택 안 함 +0점'}
+        <div style={{
+          borderRadius: 12, padding: '8px 20px',
+          fontSize: 15, fontWeight: 700, textAlign: 'center',
+          background:
+            lastResult === 'success'   ? '#f0fdf4' :
+            lastResult === 'collision' ? '#fff1f2' : '#fff7ed',
+          border: `1.5px solid ${
+            lastResult === 'success'   ? '#86efac' :
+            lastResult === 'collision' ? '#fecaca' : '#fed7aa'
+          }`,
+          color:
+            lastResult === 'success'   ? '#15803d' :
+            lastResult === 'collision' ? '#b91c1c' : '#c2410c',
+        }}>
+          {lastResult === 'success'
+            ? `✓ 성공! +${lastPoints}점`
+            : lastResult === 'collision'
+            ? `💥 ${collisionNames.length > 0 ? collisionNames.join(', ') + '와(과) 충돌!' : '충돌!'} +0점`
+            : '⏱ 선택 안 함 · +0점'}
         </div>
       )}
       {isShowing && (
-        <div style={{ fontSize: 12, color: 'var(--text-dim)', textAlign: 'center' }}>
+        <div style={{ fontSize: 12, color: '#94a3b8', textAlign: 'center' }}>
           {showCountdown}초 후 다음 라운드
         </div>
       )}
-      {!isShowing && (
-        <div style={{ fontSize: 13, color: 'var(--text-dim)', textAlign: 'center' }}>
-          {myChoice !== null ? '제출 완료 — 다른 플레이어 기다리는 중...' : '번호를 선점하세요!'}
-        </div>
-      )}
 
+      {/* Slot grid */}
       <div style={{
         display: 'grid',
         gridTemplateColumns: `repeat(${cols}, 1fr)`,
-        gap: 12, width: '100%',
+        gap: 10, width: '100%',
       }}>
         {slotClaims.map((claimers, i) => {
           const isMyChoice = myChoice === i
           const isCollision = isShowing && claimers.length > 1
-          const isSafe = isShowing && claimers.length === 1
+          const isSafe      = isShowing && claimers.length === 1
+          const isEmpty     = isShowing && claimers.length === 0
+          const taken       = !isShowing && claimers.length > 0
 
-          let border = '1px solid var(--border)'
-          let bg = 'var(--surface)'
-          let numColor = 'var(--text-muted)'
+          // Colour scheme
+          let bg = '#ffffff'
+          let border = '1.5px solid #e2e8f0'
+          let numColor = '#334155'
+          let shadow = '0 1px 4px rgba(0,0,0,0.06)'
 
           if (!isShowing && isMyChoice) {
-            border = '2px solid var(--amber)'
-            bg = 'rgba(245,158,11,0.1)'
-            numColor = 'var(--amber)'
+            bg = '#eff6ff'; border = '2px solid #3b82f6'; numColor = '#1d4ed8'
+            shadow = '0 0 0 4px rgba(59,130,246,0.15)'
+          } else if (!isShowing && taken) {
+            bg = '#fafafa'; border = '1.5px solid #cbd5e1'; numColor = '#94a3b8'
           } else if (isShowing) {
-            if (isCollision) { border = '2px solid #ef4444'; bg = 'rgba(239,68,68,0.1)'; numColor = '#ef4444' }
-            else if (isSafe)  { border = '2px solid #4ade80'; bg = 'rgba(74,222,128,0.1)'; numColor = '#4ade80' }
+            if (isCollision) { bg = '#fff1f2'; border = '2px solid #fca5a5'; numColor = '#ef4444' }
+            else if (isSafe) { bg = '#f0fdf4'; border = '2px solid #86efac'; numColor = '#16a34a' }
+            else if (isEmpty){ bg = '#f8fafc'; border = '1.5px solid #e2e8f0'; numColor = '#cbd5e1' }
           }
 
-          const showLiveNames = !isShowing && claimers.length > 0
+          const nameList = claimers.map(c => c.userId === userId ? '나' : c.name)
 
           return (
             <button
@@ -305,42 +364,52 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
               onClick={() => handleSlotTap(i)}
               disabled={isShowing || myChoice !== null}
               style={{
+                position: 'relative',
                 display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                gap: 2, borderRadius: 16, aspectRatio: '1',
-                border, background: bg,
+                gap: 4, borderRadius: 18,
+                aspectRatio: '1',
+                border, background: bg, boxShadow: shadow,
                 cursor: isShowing || myChoice !== null ? 'default' : 'pointer',
                 transition: 'all 0.15s ease',
                 WebkitTapHighlightColor: 'transparent',
                 padding: 8,
               }}
             >
-              <span style={{ fontFamily: "'Bebas Neue'", fontSize: 52, lineHeight: 1, color: numColor }}>
+              {/* Big number */}
+              <span style={{ fontFamily: "'Bebas Neue'", fontSize: 48, lineHeight: 1, color: numColor, transition: 'color 0.2s' }}>
                 {i + 1}
               </span>
 
-              {/* Real-time name display during playing phase — no color coding */}
-              {showLiveNames && (
+              {/* Status icon overlay (showing phase) */}
+              {isShowing && !isEmpty && (
                 <span style={{
-                  fontSize: 10, fontWeight: 600, textAlign: 'center', lineHeight: 1.3,
-                  color: 'var(--text-dim)',
-                  overflow: 'hidden', maxWidth: '100%',
-                  textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  position: 'absolute', top: 6, right: 8,
+                  fontSize: 14,
                 }}>
-                  {claimers.map(c => c.userId === userId ? '나' : c.name).join(', ')}
+                  {isCollision ? '💥' : '✓'}
                 </span>
               )}
 
-              {/* Result display during showing phase */}
-              {isShowing && claimers.length > 0 && (
-                <span style={{
-                  fontSize: 10, fontWeight: 600, textAlign: 'center', lineHeight: 1.3,
-                  color: isCollision ? '#ef4444' : '#4ade80',
-                  overflow: 'hidden', maxWidth: '100%',
-                  textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                }}>
-                  {isCollision ? '💥 ' : '✓ '}
-                  {claimers.map(c => c.userId === userId ? '나' : c.name).join(', ')}
-                </span>
+              {/* Player name chips */}
+              {claimers.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 3, maxWidth: '100%' }}>
+                  {nameList.map((n, ni) => (
+                    <span key={ni} style={{
+                      fontSize: 10, fontWeight: 700,
+                      background: isShowing
+                        ? (isCollision ? '#fecaca' : '#bbf7d0')
+                        : (isMyChoice ? '#dbeafe' : '#f1f5f9'),
+                      color: isShowing
+                        ? (isCollision ? '#991b1b' : '#166534')
+                        : (isMyChoice ? '#1e40af' : '#64748b'),
+                      borderRadius: 6, padding: '1px 5px',
+                      maxWidth: 60, overflow: 'hidden',
+                      textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>
+                      {n}
+                    </span>
+                  ))}
+                </div>
               )}
             </button>
           )

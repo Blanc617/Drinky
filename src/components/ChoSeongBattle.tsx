@@ -178,7 +178,7 @@ export default function ChoSeongBattle({ onComplete, roomCode, userId, myName, i
     return (
       <div className="flex flex-col gap-5 w-full" style={{ minHeight: 200 }}>
         <div style={{ textAlign: 'center', fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>
-          난이도 선택
+          글자 수 선택
         </div>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
           {diffOptions.map((d) => (
@@ -220,7 +220,7 @@ export default function ChoSeongBattle({ onComplete, roomCode, userId, myName, i
   if (!isHost && !ready) {
     return (
       <div className="flex flex-col items-center justify-center gap-3" style={{ minHeight: 200 }}>
-        <div style={{ fontSize: 14, color: 'var(--text-muted)' }}>방장이 난이도를 설정하는 중...</div>
+        <div style={{ fontSize: 14, color: 'var(--text-muted)' }}>방장이 글자 수를 설정하는 중...</div>
       </div>
     )
   }

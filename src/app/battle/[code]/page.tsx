@@ -15,7 +15,7 @@ import MafiaGameBattle from '@/components/MafiaGameBattle'
 type GameKey = 'nunchi' | 'threesixnine' | 'choseong' | 'liar' | 'balancegame' | 'mafia'
 type Phase = 'lobby' | 'round_select' | 'countdown' | 'playing' | 'results'
 
-interface Player { userId: string; name: string; isHost: boolean; avatarUrl?: string }
+interface Player { userId: string; name: string; isHost: boolean }
 
 // ── Room state reducer ──────────────────────────────────────────
 interface RoomState {
@@ -78,8 +78,8 @@ function roomReducer(state: RoomState, action: RoomAction): RoomState {
 
 const GAMES: { key: GameKey; emoji: string; label: string }[] = [
   { key: 'nunchi',       emoji: '👀', label: '눈치게임' },
-  { key: 'threesixnine', emoji: '3️⃣', label: '369 게임' },
-  { key: 'choseong',     emoji: '🔤', label: '초성게임' },
+  { key: 'threesixnine', emoji: '👏', label: '369 게임' },
+  { key: 'choseong',     emoji: 'ㄱㄴㄷ', label: '초성게임' },
   { key: 'liar',         emoji: '🤥', label: '라이어게임' },
   { key: 'balancegame',  emoji: '⚖️', label: '밸런스게임' },
   { key: 'mafia',        emoji: '🕵️', label: '마피아게임' },
@@ -97,7 +97,6 @@ export default function BattleRoomPage() {
   const [mounted, setMounted] = useState(false)
   const [needsName, setNeedsName] = useState(false)
   const [nameInput, setNameInput] = useState('')
-  const [myAvatarUrl, setMyAvatarUrl] = useState<string | null>(null)
 
   // Drag UI state (local only, no need for reducer)
   const [orderDragIdx, setOrderDragIdx] = useState<number | null>(null)
@@ -124,8 +123,8 @@ export default function BattleRoomPage() {
   const amHostRef           = useRef(false)
 
   // ── Mount: read identity ──
-  // battle_userId / battle_host_CODE: sessionStorage (탭별 독립 → 같은 기기 다탭 지원)
-  // battle_name: localStorage (탭 닫아도 이름 기억)
+  // battle_userId / battle_host_CODE / battle_name: sessionStorage (탭별 독립)
+  // battle_name도 localStorage에 백업 (탭 닫아도 이름 제안으로 기억)
   useEffect(() => {
     let id = sessionStorage.getItem('battle_userId')
     if (!id) {
@@ -135,22 +134,20 @@ export default function BattleRoomPage() {
     userIdRef.current = id
     setUserId(id)
 
-    const name = localStorage.getItem('battle_name')
-    if (name) {
-      setMyName(name)
+    const sessionName = sessionStorage.getItem('battle_name')
+    if (sessionName) {
+      // 이 탭에서 이미 이름을 설정했으면 그대로 사용
+      setMyName(sessionName)
     } else {
+      // 새 탭이면 항상 이름 입력을 요구 (localStorage 값을 제안으로 pre-fill)
+      const savedName = localStorage.getItem('battle_name')
+      setNameInput(savedName || '')
       setNeedsName(true)
     }
 
     const isHost = sessionStorage.getItem(`battle_host_${code}`) === 'true'
     amHostRef.current = isHost
     setAmHost(isHost)
-
-    // 프로필 사진 가져오기
-    const supabase = createClient()
-    supabase.auth.getUser().then(({ data }) => {
-      setMyAvatarUrl(data.user?.user_metadata?.avatar_url ?? null)
-    })
 
     setMounted(true)
   }, [code])
@@ -164,32 +161,7 @@ export default function BattleRoomPage() {
     }
   }, [])
 
-  // ── Auto-return to lobby after results ──
-  useEffect(() => {
-    if (phase !== 'results') {
-      if (resultsCdIntervalRef.current) {
-        clearInterval(resultsCdIntervalRef.current)
-        resultsCdIntervalRef.current = null
-      }
-      return
-    }
-    dispatch({ type: 'SET_RESULTS_COUNTDOWN', countdown: 5 })
-    let c = 5
-    resultsCdIntervalRef.current = setInterval(() => {
-      c--
-      dispatch({ type: 'SET_RESULTS_COUNTDOWN', countdown: c })
-      if (c <= 0) {
-        clearInterval(resultsCdIntervalRef.current!)
-        resultsCdIntervalRef.current = null
-        if (amHostRef.current) {
-          channelRef.current?.send({ type: 'broadcast', event: 'restart', payload: {} })
-        }
-      }
-    }, 1000)
-    return () => {
-      if (resultsCdIntervalRef.current) clearInterval(resultsCdIntervalRef.current)
-    }
-  }, [phase])
+  // Auto-redirect removed — navigation is manual only
 
   // ── Subscribe to channel once identity is ready ──
   useEffect(() => {
@@ -197,6 +169,18 @@ export default function BattleRoomPage() {
 
     dispatch({ type: 'SET_CHANNEL_STATUS', status: 'connecting' })
     const supabase = createClient()
+
+    // JWT 만료 방지: 토큰 갱신 시 Realtime에 반영
+    const { data: { subscription: authSub } } = supabase.auth.onAuthStateChange((_event, session) => {
+      supabase.realtime.setAuth(session?.access_token ?? null)
+    })
+    supabase.auth.startAutoRefresh()
+    // 30분마다 강제 갱신 (세션 없는 경우 대비)
+    const tokenRefreshTimer = setInterval(async () => {
+      const { data } = await supabase.auth.refreshSession()
+      supabase.realtime.setAuth(data.session?.access_token ?? null)
+    }, 30 * 60 * 1000)
+
     const channel = supabase.channel(`battle:${code}`, {
       config: {
         broadcast: { self: true },
@@ -206,15 +190,15 @@ export default function BattleRoomPage() {
     channelRef.current = channel
 
     function syncPlayers() {
-      const state = channel.presenceState<{ name: string; isHost: boolean; avatarUrl?: string }>()
+      const state = channel.presenceState<{ name: string; isHost: boolean }>()
       const list: Player[] = Object.entries(state)
         .filter(([, arr]) => arr.length > 0)
         .map(([uid, arr]) => ({
           userId: uid,
           name: arr[0].name,
           isHost: arr[0].isHost,
-          avatarUrl: arr[0].avatarUrl,
         }))
+      list.sort((a, b) => (b.isHost ? 1 : 0) - (a.isHost ? 1 : 0))
       playersRef.current = list
       dispatch({ type: 'SET_PLAYERS', players: [...list] })
     }
@@ -248,10 +232,10 @@ export default function BattleRoomPage() {
         playerOrderRef.current = order
         dispatch({ type: 'GAME_INIT', game: payload.gameKey, rounds, order })
 
-        // 라이어 게임은 자체 카운트다운이 있으므로 바로 playing으로
-        if (payload.gameKey === 'liar') {
+        // 라이어/마피아는 자체 카운트다운이 있으므로 바로 playing으로
+        if (payload.gameKey === 'liar' || payload.gameKey === 'mafia') {
           dispatch({ type: 'SET_PHASE', phase: 'playing' })
-          autoFinishRef.current = setTimeout(() => dispatch({ type: 'SET_PHASE', phase: 'results' }), 600_000)
+          autoFinishRef.current = setTimeout(() => dispatch({ type: 'SET_PHASE', phase: 'results' }), 1_800_000)
           return
         }
 
@@ -287,10 +271,18 @@ export default function BattleRoomPage() {
         console.log('[Battle] channel status:', status, err ?? '')
         if (status === 'SUBSCRIBED') {
           dispatch({ type: 'SET_CHANNEL_STATUS', status: 'connected' })
-          await channel.track({ name: myName, isHost: amHostRef.current, avatarUrl: myAvatarUrl ?? undefined })
+          await channel.track({ name: myName, isHost: amHostRef.current })
         } else if (status === 'CHANNEL_ERROR') {
           console.error('[Battle] channel error:', err)
-          dispatch({ type: 'SET_CHANNEL_STATUS', status: 'error' })
+          const errStr = String(err ?? '')
+          if (errStr.includes('InvalidJWTToken') || errStr.includes('expired')) {
+            // 토큰 만료 → 갱신 후 Realtime에 반영하면 자동 재연결됨
+            supabase.auth.refreshSession().then(({ data }) => {
+              supabase.realtime.setAuth(data.session?.access_token ?? null)
+            })
+          } else if (err) {
+            dispatch({ type: 'SET_CHANNEL_STATUS', status: 'error' })
+          }
         } else if (status === 'TIMED_OUT') {
           dispatch({ type: 'SET_CHANNEL_STATUS', status: 'timeout' })
         } else if (status === 'CLOSED') {
@@ -302,6 +294,8 @@ export default function BattleRoomPage() {
       if (autoFinishRef.current) clearTimeout(autoFinishRef.current)
       if (cdIntervalRef.current) clearInterval(cdIntervalRef.current)
       if (resultsCdIntervalRef.current) clearInterval(resultsCdIntervalRef.current)
+      clearInterval(tokenRefreshTimer)
+      authSub.unsubscribe()
       supabase.removeChannel(channel)
     }
   }, [userId, myName, code, checkAllDone])
@@ -339,31 +333,11 @@ export default function BattleRoomPage() {
   function handleNameSubmit() {
     const n = nameInput.trim() || '익명'
     localStorage.setItem('battle_name', n)
+    sessionStorage.setItem('battle_name', n)
     setMyName(n)
     setNeedsName(false)
   }
 
-  function Avatar({ player, size = 28 }: { player: Player; size?: number }) {
-    if (player.avatarUrl) {
-      return (
-        <img
-          src={player.avatarUrl}
-          alt={player.name}
-          style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, border: '1px solid var(--border)' }}
-        />
-      )
-    }
-    return (
-      <div style={{
-        width: size, height: size, borderRadius: '50%', flexShrink: 0,
-        background: 'var(--surface2)', border: '1px solid var(--border)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: size * 0.55, lineHeight: 1,
-      }}>
-        {player.isHost ? '👑' : '👤'}
-      </div>
-    )
-  }
 
   function handleRestart() {
     if (resultsCdIntervalRef.current) {
@@ -488,7 +462,7 @@ export default function BattleRoomPage() {
             </div>
 
             {/* 플레이어 순서 (턴제 게임만) */}
-            {(['threesixnine', 'choseong'] as GameKey[]).includes(selectedGame) && playerOrder.length > 1 && (
+            {selectedGame === 'threesixnine' && playerOrder.length > 1 && (
               <div className="flex flex-col gap-2">
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.06em' }}>플레이어 순서</span>
@@ -588,6 +562,9 @@ export default function BattleRoomPage() {
   // ── Countdown ──
   if (phase === 'countdown') {
     const game = GAMES.find(g => g.key === selectedGame)
+    const is369 = selectedGame === 'threesixnine'
+    const firstPlayerId = is369 && playerOrder.length > 0 ? playerOrder[0] : null
+    const amFirst = firstPlayerId === userId
     return (
       <main className="flex flex-col flex-1 px-6 pt-8 pb-8">
         <style>{`@keyframes popIn{from{transform:scale(0.4);opacity:0}to{transform:scale(1);opacity:1}}`}</style>
@@ -597,15 +574,48 @@ export default function BattleRoomPage() {
         >
           ←
         </button>
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 24 }}>
-        <div style={{ fontSize: 15, color: 'var(--text-muted)' }}>{game?.emoji} {game?.label}</div>
-        <div style={{
-          fontFamily: "'Bebas Neue'", fontSize: 140, color: 'var(--amber)',
-          lineHeight: 1, textShadow: '0 0 50px rgba(245,158,11,0.7)',
-          animation: 'popIn 0.25s cubic-bezier(0.34,1.56,0.64,1)',
-          key: countdown,
-        } as React.CSSProperties}>{countdown}</div>
-        <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>준비하세요!</div>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', paddingTop: 24, gap: 0 }}>
+          <div style={{ fontSize: 15, color: 'var(--text-muted)', marginBottom: 16 }}>{game?.emoji} {game?.label}</div>
+          <div style={{
+            fontFamily: "'Bebas Neue'", fontSize: 140, color: 'var(--amber)',
+            lineHeight: 1, textShadow: '0 0 50px rgba(245,158,11,0.7)',
+            animation: 'popIn 0.25s cubic-bezier(0.34,1.56,0.64,1)',
+            key: countdown,
+          } as React.CSSProperties}>{countdown}</div>
+          <div style={{ fontSize: 13, color: 'var(--text-dim)', marginTop: 8 }}>준비하세요!</div>
+
+          {/* 369 전용 순서 표시 */}
+          {is369 && playerOrder.length > 0 && (
+            <div style={{ width: '100%', marginTop: 28, borderRadius: 18, background: 'var(--surface)', border: '1.5px solid var(--border)', overflow: 'hidden' }}>
+              {/* 박스 헤더 */}
+              <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-dim)', letterSpacing: '0.14em', textTransform: 'uppercase' }}>순서</span>
+                {amFirst ? (
+                  <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--amber)', background: 'rgba(245,158,11,0.13)', border: '1.5px solid rgba(245,158,11,0.4)', borderRadius: 99, padding: '3px 10px' }}>
+                    🎯 내가 첫 번째!
+                  </span>
+                ) : (
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                    <span style={{ color: 'var(--amber)', fontWeight: 700 }}>{players.find(p => p.userId === firstPlayerId)?.name}</span>부터 시작
+                  </span>
+                )}
+              </div>
+              {/* 순서 목록 */}
+              <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {playerOrder.map((uid, i) => {
+                  const isMe = uid === userId
+                  const name = players.find(p => p.userId === uid)?.name ?? '?'
+                  return (
+                    <div key={uid} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderRadius: 12, background: isMe ? 'rgba(245,158,11,0.12)' : 'rgba(255,255,255,0.03)', border: `1.5px solid ${isMe ? 'rgba(245,158,11,0.45)' : 'transparent'}` }}>
+                      <span style={{ fontSize: 12, fontWeight: 800, color: isMe ? 'var(--amber)' : 'var(--text-dim)', minWidth: 22, textAlign: 'center', background: isMe ? 'rgba(245,158,11,0.18)' : 'rgba(255,255,255,0.06)', borderRadius: 7, padding: '2px 6px' }}>{i + 1}</span>
+                      <span style={{ fontSize: 15, fontWeight: isMe ? 700 : 500, color: isMe ? 'var(--amber)' : 'var(--text)', flex: 1 }}>{name}</span>
+                      {isMe && <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--amber)', background: 'rgba(245,158,11,0.15)', padding: '2px 8px', borderRadius: 99 }}>나</span>}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </main>
     )
@@ -616,41 +626,13 @@ export default function BattleRoomPage() {
     const game = GAMES.find(g => g.key === selectedGame)
     const doneCount = Object.keys(doneMap).length
 
-    // After submitting my score — show waiting screen
+    // After submitting my score — show minimal waiting screen
     if (myScore !== null) {
       return (
-        <main className="flex flex-col flex-1 px-6 pt-8 pb-8 gap-6">
-          <button
-            onClick={() => dispatch({ type: 'SET_PHASE', phase: 'lobby' })}
-            style={{ width: 40, height: 40, borderRadius: 12, background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--text)', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          >
-            ←
-          </button>
-          <div className="text-center">
-            <div style={{ fontSize: 48 }}>⏳</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)', marginTop: 8 }}>
-              내 점수: <span style={{ color: 'var(--amber)' }}>{myScore}점</span>
-            </div>
-            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>
-              {doneCount} / {startedCountRef.current}명 완료
-            </div>
-          </div>
-          <div className="flex flex-col gap-2">
-            {players.map(p => {
-              const score = doneMap[p.userId]
-              return (
-                <div key={p.userId} className="glass p-3" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <span style={{ fontSize: 14, color: 'var(--text)', flex: 1, fontWeight: p.userId === userId ? 600 : 400 }}>
-                    {p.name}{p.userId === userId ? ' (나)' : ''}
-                  </span>
-                  {score !== undefined
-                    ? <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--amber)' }}>{score}점 ✓</span>
-                    : <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>플레이 중...</span>
-                  }
-                </div>
-              )
-            })}
-          </div>
+        <main className="flex flex-col flex-1 items-center justify-center gap-4 px-6">
+          <div style={{ fontSize: 36 }}>⏳</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>다른 플레이어를 기다리는 중...</div>
+          <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>{doneCount} / {startedCountRef.current}명 완료</div>
         </main>
       )
     }
@@ -716,7 +698,7 @@ export default function BattleRoomPage() {
           )}
           {selectedGame === 'liar'        && <LiarGameBattle    onComplete={handleGameComplete} roomCode={code} userId={userId} myName={myName} players={players} isHost={amHost} rounds={selectedRounds} />}
           {selectedGame === 'balancegame' && <BalanceGameBattle onComplete={handleGameComplete} roomCode={code} userId={userId} players={players} isHost={amHost} rounds={selectedRounds} />}
-          {selectedGame === 'mafia'       && <MafiaGameBattle    onComplete={handleGameComplete} roomCode={code} userId={userId} myName={myName} players={players} isHost={amHost} />}
+          {selectedGame === 'mafia'       && <MafiaGameBattle    onComplete={handleGameComplete} roomCode={code} userId={userId} myName={myName} players={players} isHost={amHost} rounds={selectedRounds} />}
         </div>
       </main>
     )
@@ -741,138 +723,267 @@ export default function BattleRoomPage() {
       } catch {}
     }
 
+    // ── Game-specific config ──
+    type GCfg = {
+      accent: string; accentDim: string; accentGlow: string
+      bg: string; trophy: string; achievement: string
+      rankNameColor: string
+      light: boolean
+      renderScore: (score: number, i: number) => React.ReactNode
+      renderFirstScore: (score: number) => React.ReactNode
+    }
+    const gcMap: Record<string, GCfg> = {
+      mafia: {
+        accent: '#f59e0b', accentDim: 'rgba(245,158,11,0.6)', accentGlow: 'rgba(245,158,11,0.4)',
+        bg: 'linear-gradient(180deg, #0a0f1e 0%, #111827 60%, #0d1117 100%)',
+        trophy: '🏆', achievement: '마피아 우승자',
+        rankNameColor: '#fde68a', light: false,
+        renderScore: (s, i) => (
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 24, fontWeight: 900, color: i === 0 ? '#fbbf24' : 'rgba(255,255,255,0.55)', lineHeight: 1 }}>{s}</div>
+            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', fontWeight: 600 }}>점</div>
+          </div>
+        ),
+        renderFirstScore: (s) => <div style={{ fontSize: 13, color: 'rgba(245,158,11,0.7)', marginTop: 4 }}>{s}점</div>,
+      },
+      nunchi: {
+        accent: '#059669', accentDim: 'rgba(5,150,105,0.7)', accentGlow: 'rgba(5,150,105,0.2)',
+        bg: 'linear-gradient(180deg, #f0fdf4 0%, #ffffff 100%)',
+        trophy: '👁️', achievement: '눈치왕',
+        rankNameColor: '#065f46', light: true,
+        renderScore: (s, i) => (
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 24, fontWeight: 900, color: i === 0 ? '#059669' : '#94a3b8', lineHeight: 1 }}>{s}</div>
+            <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700 }}>%</div>
+          </div>
+        ),
+        renderFirstScore: (s) => <div style={{ fontSize: 13, color: '#059669', marginTop: 4 }}>{s}% 정확도</div>,
+      },
+      threesixnine: {
+        accent: '#d97706', accentDim: 'rgba(217,119,6,0.7)', accentGlow: 'rgba(217,119,6,0.2)',
+        bg: 'linear-gradient(180deg, #fffbeb 0%, #ffffff 100%)',
+        trophy: '🎯', achievement: '369 마스터',
+        rankNameColor: '#92400e', light: true,
+        renderScore: (s, _i) => {
+          const { correct, mistakes } = decode369(s)
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#16a34a' }}>정답 {correct}</span>
+              <span style={{ fontSize: 11, color: mistakes > 0 ? '#dc2626' : '#94a3b8', fontWeight: 600 }}>오답 {mistakes}</span>
+            </div>
+          )
+        },
+        renderFirstScore: (s) => {
+          const { correct, mistakes } = decode369(s)
+          return <div style={{ fontSize: 13, color: '#d97706', marginTop: 4 }}>정답 {correct} · 오답 {mistakes}</div>
+        },
+      },
+      choseong: {
+        accent: '#7c3aed', accentDim: 'rgba(124,58,237,0.7)', accentGlow: 'rgba(124,58,237,0.2)',
+        bg: 'linear-gradient(180deg, #f5f3ff 0%, #ffffff 100%)',
+        trophy: '🧠', achievement: '언어 천재',
+        rankNameColor: '#4c1d95', light: true,
+        renderScore: (s, i) => (
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 24, fontWeight: 900, color: i === 0 ? '#7c3aed' : '#94a3b8', lineHeight: 1 }}>{s}</div>
+            <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700 }}>점</div>
+          </div>
+        ),
+        renderFirstScore: (s) => <div style={{ fontSize: 13, color: '#7c3aed', marginTop: 4 }}>{s}점</div>,
+      },
+      liar: {
+        accent: '#f87171', accentDim: 'rgba(248,113,113,0.65)', accentGlow: 'rgba(248,113,113,0.35)',
+        bg: 'linear-gradient(180deg, #140404 0%, #1c0808 60%, #0e0404 100%)',
+        trophy: '🃏', achievement: '최고의 라이어',
+        rankNameColor: '#fecaca', light: false,
+        renderScore: (s, i) => (
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 24, fontWeight: 900, color: i === 0 ? '#f87171' : 'rgba(255,255,255,0.55)', lineHeight: 1 }}>{s}</div>
+            <div style={{ fontSize: 10, color: 'rgba(248,113,113,0.5)', fontWeight: 700 }}>점</div>
+          </div>
+        ),
+        renderFirstScore: (s) => <div style={{ fontSize: 13, color: 'rgba(248,113,113,0.8)', marginTop: 4 }}>{s}점</div>,
+      },
+      balancegame: {
+        accent: '#0891b2', accentDim: 'rgba(8,145,178,0.7)', accentGlow: 'rgba(8,145,178,0.2)',
+        bg: 'linear-gradient(180deg, #ecfeff 0%, #ffffff 100%)',
+        trophy: '💬', achievement: '공감왕',
+        rankNameColor: '#164e63', light: true,
+        renderScore: (s, i) => (
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 24, fontWeight: 900, color: i === 0 ? '#0891b2' : '#94a3b8', lineHeight: 1 }}>{s}</div>
+            <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700 }}>/{selectedRounds}회</div>
+          </div>
+        ),
+        renderFirstScore: (s) => <div style={{ fontSize: 13, color: '#0891b2', marginTop: 4 }}>{s}/{selectedRounds}회 공감</div>,
+      },
+    }
+    const gc: GCfg = gcMap[selectedGame] ?? gcMap.mafia
+
     const sorted = players
       .map(p => ({ ...p, score: doneMap[p.userId] ?? null }))
       .sort((a, b) => (b.score ?? -1) - (a.score ?? -1))
     const medals = ['🥇', '🥈', '🥉']
 
+    const myRank = sorted.findIndex(p => p.userId === userId)
+    const L = gc.light
+    const txt      = L ? '#0f172a' : '#f1f5f9'
+    const txtMuted = L ? '#64748b' : 'rgba(255,255,255,0.5)'
+    const cardBg   = L ? '#ffffff' : 'rgba(255,255,255,0.03)'
+    const cardBorder = (highlight: boolean) =>
+      highlight ? `1.5px solid ${gc.accent}` : L ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.07)'
+    const rankColors = [gc.accent, L ? '#64748b' : '#94a3b8', L ? '#b45309' : '#b45309']
+    const rankBg    = [L ? '#f8fcff' : `${gc.accent}1e`, L ? '#f8fcff' : 'rgba(148,163,184,0.08)', L ? '#f8fcff' : 'rgba(180,83,9,0.10)']
+
     return (
-      <main className="flex flex-col flex-1 px-6 pt-8 pb-8 gap-5" style={{ overflowY: 'auto' }}>
-        <button
-          onClick={() => router.push('/')}
-          style={{ width: 40, height: 40, borderRadius: 12, background: 'var(--surface2)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--text)', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
-        >
-          ←
-        </button>
-        <div className="text-center" style={{ marginTop: 4 }}>
-          <div style={{ fontSize: 14, color: 'var(--text-dim)', letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700 }}>
-            {GAMES.find(g => g.key === selectedGame)?.label} 결과
-          </div>
-        </div>
+      <main className="flex flex-col flex-1 pb-8 gap-0" style={{ overflowY: 'auto', background: gc.bg, position: 'relative' }}>
+        <style>{`
+          @keyframes rs-fadeUp { from { transform: translateY(18px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
+          @keyframes rs-float  { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-8px) } }
+        `}</style>
 
-        {/* 전체 순위 */}
-        <div>
-          <div style={{ fontSize: 12, color: 'var(--text-dim)', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10 }}>
-            🏆 전체 순위
-          </div>
-          <div className="flex flex-col gap-3">
-            {sorted.map((p, i) => (
-              <div
-                key={p.userId}
-                className="glass p-4"
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 14,
-                  border: p.userId === userId ? '1px solid var(--amber)' : '1px solid var(--border)',
-                  background: i === 0 ? 'rgba(245,158,11,0.06)' : 'var(--surface)',
-                }}
-              >
-                <span style={{ fontSize: 26, width: 32, textAlign: 'center', flexShrink: 0 }}>
-                  {medals[i] ?? <span style={{ fontSize: 14, color: 'var(--text-dim)' }}>{i + 1}</span>}
-                </span>
-                <Avatar player={p} size={36} />
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>{p.name}</div>
-                  {p.userId === userId && <div style={{ fontSize: 11, color: 'var(--amber)' }}>나</div>}
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  {is369 && p.score !== null ? (() => {
-                    const { correct, mistakes } = decode369(p.score)
-                    return (
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: i === 0 ? 'var(--amber)' : 'var(--text)', lineHeight: 1 }}>
-                          <span style={{ color: '#4ade80' }}>정답 {correct}</span>
-                          <span style={{ color: 'var(--text-dim)', margin: '0 4px' }}>·</span>
-                          <span style={{ color: mistakes > 0 ? '#ef4444' : 'var(--text-dim)' }}>오답 {mistakes}</span>
-                        </div>
-                      </div>
-                    )
-                  })() : (
-                    <>
-                      <div style={{
-                        fontFamily: "'Bebas Neue'", fontSize: 30,
-                        color: i === 0 ? 'var(--amber)' : 'var(--text-muted)',
-                        lineHeight: 1,
-                      }}>
-                        {p.score ?? '-'}
-                      </div>
-                      <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>점</div>
-                    </>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+        {/* 게임 컬러 상단 바 */}
+        {L && <div style={{ height: 5, background: gc.accent, flexShrink: 0 }} />}
 
-        {/* 369 라운드별 기록 */}
-        {is369 && roundStats.length > 0 && (
-          <div>
-            <div style={{ fontSize: 12, color: 'var(--text-dim)', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10 }}>
-              📋 라운드별 기록
+        {/* 상단 헤더 */}
+        <div style={{ position: 'relative', zIndex: 10, padding: '20px 20px 0', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button
+            onClick={() => router.push('/')}
+            style={{ width: 36, height: 36, borderRadius: 10, background: L ? '#f1f5f9' : 'rgba(255,255,255,0.06)', border: L ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.1)', cursor: 'pointer', color: L ? '#475569' : 'rgba(255,255,255,0.7)', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+          >←</button>
+          <div style={{ flex: 1, textAlign: 'center' }}>
+            <div style={{ fontSize: 10, fontWeight: 800, color: gc.accentDim, letterSpacing: '0.22em', textTransform: 'uppercase' }}>RESULT</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: txt, marginTop: 2 }}>
+              {GAMES.find(g => g.key === selectedGame)?.label}
             </div>
-            <div className="flex flex-col gap-3">
-              {roundStats.map((round) => {
-                const roundSorted = players
-                  .map(p => ({ ...p, stat: round.perPlayer[p.userId] ?? { correct: 0, mistakes: 0 } }))
-                  .sort((a, b) => a.stat.mistakes - b.stat.mistakes || b.stat.correct - a.stat.correct)
-                return (
-                  <div key={round.roundNum} className="glass p-4">
-                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--amber)', marginBottom: 10 }}>
-                      라운드 {round.roundNum}
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      {roundSorted.map((p, i) => (
-                        <div key={p.userId} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <span style={{ fontSize: 12, color: 'var(--text-dim)', minWidth: 16, textAlign: 'right' }}>{i + 1}</span>
-                          <span style={{
-                            flex: 1, fontSize: 14,
-                            fontWeight: p.userId === userId ? 700 : 400,
-                            color: p.userId === userId ? 'var(--amber)' : 'var(--text)',
-                          }}>
-                            {p.name}
-                          </span>
-                          <span style={{ fontSize: 13, color: '#4ade80', fontWeight: 600 }}>정답 {p.stat.correct}</span>
-                          {p.stat.mistakes > 0 && (
-                            <span style={{ fontSize: 12, color: '#ef4444', fontWeight: 600 }}>💀 오답</span>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )
-              })}
+          </div>
+          <div style={{ width: 36 }} />
+        </div>
+
+        {/* 트로피 + 1위 */}
+        {sorted[0] && (
+          <div style={{ position: 'relative', zIndex: 10, textAlign: 'center', padding: '28px 20px 20px', animation: 'rs-fadeUp 0.5s ease' }}>
+            <div style={{ fontSize: 52, display: 'inline-block', animation: 'rs-float 4s ease-in-out infinite' }}>{gc.trophy}</div>
+            <div style={{ fontSize: 11, fontWeight: 800, color: gc.accentDim, letterSpacing: '0.2em', textTransform: 'uppercase', marginTop: 10 }}>{gc.achievement}</div>
+            <div style={{ fontSize: 22, fontWeight: 900, color: txt, marginTop: 4 }}>
+              {sorted[0].name}
+            </div>
+            {sorted[0].score !== null && gc.renderFirstScore(sorted[0].score)}
+          </div>
+        )}
+
+        {/* 내 순위 뱃지 */}
+        {myRank >= 0 && myRank !== 0 && (
+          <div style={{ position: 'relative', zIndex: 10, display: 'flex', justifyContent: 'center', marginBottom: 4, animation: 'rs-fadeUp 0.4s ease 0.1s both' }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '6px 16px', borderRadius: 99, background: `${gc.accent}15`, border: `1px solid ${gc.accent}50` }}>
+              <span style={{ fontSize: 13 }}>{medals[myRank] ?? `${myRank + 1}위`}</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: gc.accent }}>내 순위 {myRank + 1}위</span>
             </div>
           </div>
         )}
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 4 }}>
+        {/* 구분선 */}
+        <div style={{ position: 'relative', zIndex: 10, margin: '12px 20px', height: 1, background: L ? '#e2e8f0' : `linear-gradient(90deg, transparent, ${gc.accent}4d, transparent)` }} />
+
+        {/* 전체 순위 리스트 */}
+        <div style={{ position: 'relative', zIndex: 10, padding: '0 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {sorted.map((p, i) => {
+            const isMe = p.userId === userId
+            const color = rankColors[i] ?? txtMuted
+            const bg    = rankBg[i]    ?? cardBg
+            return (
+              <div
+                key={p.userId}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 14,
+                  padding: '13px 16px', borderRadius: 16,
+                  background: isMe ? `${gc.accent}12` : bg,
+                  border: cardBorder(isMe),
+                  boxShadow: isMe ? `0 2px 12px ${gc.accent}22` : L ? '0 1px 4px rgba(0,0,0,0.06)' : 'none',
+                  animation: `rs-fadeUp 0.4s ease ${0.05 * i + 0.15}s both`,
+                }}
+              >
+                <span style={{ fontSize: i < 3 ? 22 : 13, width: 28, textAlign: 'center', flexShrink: 0, color: i >= 3 ? txtMuted : color, fontWeight: 700 }}>
+                  {medals[i] ?? i + 1}
+                </span>
+                <span style={{ fontSize: 18 }}>{p.isHost ? '👑' : '👤'}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: isMe ? 700 : 500, color: isMe ? gc.rankNameColor : txt }}>
+                    {p.name}{isMe ? ' (나)' : ''}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  {p.score !== null ? gc.renderScore(p.score, i) : (
+                    <div style={{ fontSize: 20, color: txtMuted, fontWeight: 700 }}>-</div>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* 369 라운드별 기록 */}
+        {is369 && roundStats.length > 0 && (
+          <div style={{ position: 'relative', zIndex: 10, padding: '16px 20px 0', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: txtMuted, letterSpacing: '0.16em', textTransform: 'uppercase', marginBottom: 2 }}>라운드별 기록</div>
+            {roundStats.map((round) => {
+              const roundSorted = players
+                .map(p => ({ ...p, stat: round.perPlayer[p.userId] ?? { correct: 0, mistakes: 0 } }))
+                .sort((a, b) => a.stat.mistakes - b.stat.mistakes || b.stat.correct - a.stat.correct)
+              return (
+                <div key={round.roundNum} style={{ borderRadius: 16, overflow: 'hidden', background: L ? '#fff8f0' : cardBg, border: L ? '1px solid #fde8cc' : cardBorder(false), boxShadow: L ? '0 1px 4px rgba(0,0,0,0.06)' : 'none' }}>
+                  {/* 라운드 헤더 */}
+                  <div style={{ padding: '10px 16px', background: L ? '#fef3e2' : 'rgba(255,255,255,0.04)', borderBottom: L ? '1px solid #fde8cc' : '1px solid rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ width: 4, height: 16, borderRadius: 2, background: gc.accent, flexShrink: 0 }} />
+                    <span style={{ fontSize: 12, fontWeight: 800, color: L ? '#334155' : gc.accentDim, letterSpacing: '0.08em' }}>ROUND {round.roundNum}</span>
+                  </div>
+                  {/* 플레이어 행 */}
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    {roundSorted.map((p, i) => {
+                      const isMe = p.userId === userId
+                      return (
+                        <div key={p.userId} style={{
+                          display: 'flex', alignItems: 'center', gap: 12,
+                          padding: '10px 16px',
+                          background: isMe ? (L ? `${gc.accent}10` : `${gc.accent}18`) : 'transparent',
+                          borderBottom: i < roundSorted.length - 1 ? (L ? '1px solid #fde8cc' : '1px solid rgba(255,255,255,0.04)') : 'none',
+                        }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: txtMuted, minWidth: 18, textAlign: 'center' }}>{i + 1}</span>
+                          <span style={{ flex: 1, fontSize: 14, fontWeight: isMe ? 700 : 500, color: isMe ? gc.accent : txt }}>
+                            {p.name}{isMe ? ' (나)' : ''}
+                          </span>
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: '#16a34a', background: L ? '#dcfce7' : 'rgba(22,163,74,0.15)', padding: '2px 8px', borderRadius: 6, minWidth: 44, textAlign: 'center' }}>✓ {p.stat.correct}</span>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: p.stat.mistakes > 0 ? '#dc2626' : txtMuted, background: p.stat.mistakes > 0 ? (L ? '#fee2e2' : 'rgba(220,38,38,0.15)') : 'transparent', padding: '2px 8px', borderRadius: 6, minWidth: 44, textAlign: 'center' }}>
+                              {p.stat.mistakes > 0 ? `✗ ${p.stat.mistakes}` : '—'}
+                            </span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* 버튼 */}
+        <div style={{ position: 'relative', zIndex: 10, padding: '20px 20px 0', display: 'flex', flexDirection: 'column', gap: 10 }}>
           {amHost && (
             <button
-              className="btn-primary"
               onClick={handleSameGame}
-              style={{ background: '#fff', color: '#000' }}
+              style={{ width: '100%', padding: '14px', borderRadius: 14, background: L ? '#f1f5f9' : 'rgba(255,255,255,0.08)', border: L ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.15)', color: L ? '#334155' : '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', letterSpacing: '0.02em' }}
             >
               🔄 같은 게임 한 판 더
             </button>
           )}
-          <button className="btn-primary" onClick={handleRestart}>
+          <button
+            className="btn-primary"
+            onClick={handleRestart}
+          >
             🎮 다른 게임하러 가기
           </button>
-          {amHost && (
-            <div style={{ textAlign: 'center', fontSize: 12, color: 'var(--text-dim)' }}>
-              {resultsCountdown}초 후 전체 자동 이동
-            </div>
-          )}
         </div>
       </main>
     )
@@ -1009,7 +1120,7 @@ export default function BattleRoomPage() {
           )}
           {players.map(p => (
             <div key={p.userId} className="glass p-3" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <Avatar player={p} size={28} />
+              <span style={{ fontSize: 18 }}>{p.isHost ? '👑' : '👤'}</span>
               <span style={{ fontSize: 14, color: 'var(--text)', flex: 1 }}>{p.name}</span>
               {p.isHost && <span style={{ fontSize: 11, color: 'var(--amber)' }}>👑</span>}
               {p.userId === userId && (
