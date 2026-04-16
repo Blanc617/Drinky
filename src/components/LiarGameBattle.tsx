@@ -92,6 +92,11 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
   const isHostRef = useRef(isHost)
   const liarUserIdRef = useRef('')
   const onCompleteRef = useRef(onComplete)
+  // 투표 중복 발화 방지
+  const votingStartedRef = useRef(false)
+  // 라이어 추측 타임아웃
+  const [guessTimeLeft, setGuessTimeLeft] = useState<number | null>(null)
+  const guessTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   isHostRef.current = isHost
   playerCountRef.current = players.length
@@ -166,6 +171,8 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
         }, 1000)
       })
       .on('broadcast', { event: 'liar_vote_start' }, () => {
+        if (votingStartedRef.current) return  // 중복 이벤트 무시
+        votingStartedRef.current = true
         if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
         voteMapRef.current = {}
         setVoteMap({})
@@ -243,6 +250,9 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
         setLiarWon(null)
         setLiarGuess('')
         setGuessResult(null)
+        votingStartedRef.current = false
+        if (guessTimerRef.current) { clearInterval(guessTimerRef.current); guessTimerRef.current = null }
+        setGuessTimeLeft(null)
       })
       .subscribe()
 
@@ -251,6 +261,40 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
       supabase.removeChannel(channel)
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 라이어 추측 30초 타임아웃
+  useEffect(() => {
+    if (!liarRevealed || !isLiar || guessResult !== null || liarWon !== false) return
+    let t = 30
+    setGuessTimeLeft(t)
+    guessTimerRef.current = setInterval(() => {
+      t--
+      setGuessTimeLeft(t)
+      if (t <= 0) {
+        clearInterval(guessTimerRef.current!)
+        guessTimerRef.current = null
+        setGuessTimeLeft(null)
+        setGuessResult('wrong')
+        channelRef.current?.send({
+          type: 'broadcast',
+          event: 'liar_guess_result',
+          payload: { result: 'wrong' },
+        })
+      }
+    }, 1000)
+    return () => {
+      if (guessTimerRef.current) { clearInterval(guessTimerRef.current); guessTimerRef.current = null }
+    }
+  }, [liarRevealed, liarWon]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 추측 완료 시 타이머 정지
+  useEffect(() => {
+    if (guessResult !== null && guessTimerRef.current) {
+      clearInterval(guessTimerRef.current)
+      guessTimerRef.current = null
+      setGuessTimeLeft(null)
+    }
+  }, [guessResult])
 
   function handleStart() {
     const catKey = selectedCat === '랜덤' ? pick(Object.keys(CATEGORIES)) : selectedCat
@@ -293,15 +337,22 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
     for (const target of Object.values(currentVoteMap)) {
       tally[target] = (tally[target] ?? 0) + 1
     }
-    let accusedId = ''
     let maxVotesFound = 0
+    let topCandidates: string[] = []
     for (const [uid, votes] of Object.entries(tally)) {
       if (votes > maxVotesFound) {
         maxVotesFound = votes
-        accusedId = uid
+        topCandidates = [uid]
+      } else if (votes === maxVotesFound) {
+        topCandidates.push(uid)
       }
     }
-    const accusedIsLiar = accusedId === currentLiarUserId
+    // 동점이면 라이어가 지목되지 않은 것 → 라이어 승리
+    if (topCandidates.length !== 1) {
+      setLiarWon(true)
+      return
+    }
+    const accusedIsLiar = topCandidates[0] === currentLiarUserId
     setLiarWon(!accusedIsLiar)
   }
 
@@ -802,10 +853,17 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
             </div>
           )}
 
-          {/* Liar's guess input */}
-          {isLiar && guessResult === null && (
+          {/* Liar's guess input — 라이어가 잡혔을 때만 (liarWon === false) */}
+          {isLiar && guessResult === null && liarWon === false && (
             <div style={{ ...card, background: '#fffbeb', border: '1.5px solid #fde68a', textAlign: 'left' }}>
-              <div style={{ fontSize: 12, color: '#b45309', fontWeight: 700, marginBottom: 8 }}>💡 최후의 기회 — 주제를 맞춰보세요</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <div style={{ fontSize: 12, color: '#b45309', fontWeight: 700 }}>💡 최후의 기회 — 주제를 맞춰보세요</div>
+                {guessTimeLeft !== null && (
+                  <div style={{ fontSize: 13, fontWeight: 800, color: guessTimeLeft <= 10 ? '#ef4444' : '#b45309' }}>
+                    {guessTimeLeft}초
+                  </div>
+                )}
+              </div>
               <input
                 type="text"
                 value={liarGuess}
@@ -845,7 +903,7 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
                   {keyword}
                 </span>
               </div>
-              {guessResult === null && (
+              {guessResult === null && liarWon === false && (
                 <div style={{ ...card, display: 'flex', alignItems: 'center', gap: 10, background: '#eff6ff', border: '1.5px solid #bfdbfe' }}>
                   <span style={{ fontSize: 22, animation: 'pulse 1s ease-in-out infinite' }}>✏️</span>
                   <div style={{ textAlign: 'left' }}>
@@ -904,15 +962,15 @@ export default function LiarGameBattle({ onComplete, roomCode, userId, players, 
           {isHost ? (
             <button
               onClick={handleRoundComplete}
-              disabled={guessResult === null}
+              disabled={liarWon === false && guessResult === null}
               style={{
                 marginTop: 16, width: '100%', padding: '14px 0', borderRadius: 14,
-                background: guessResult === null ? '#f1f5f9' : '#0f172a',
-                color: guessResult === null ? '#94a3b8' : '#ffffff',
+                background: (liarWon === false && guessResult === null) ? '#f1f5f9' : '#0f172a',
+                color: (liarWon === false && guessResult === null) ? '#94a3b8' : '#ffffff',
                 fontWeight: 700, fontSize: 15, border: 'none',
-                cursor: guessResult === null ? 'not-allowed' : 'pointer',
+                cursor: (liarWon === false && guessResult === null) ? 'not-allowed' : 'pointer',
                 transition: 'all 0.15s ease',
-                boxShadow: guessResult === null ? 'none' : '0 2px 12px rgba(0,0,0,0.15)',
+                boxShadow: (liarWon === false && guessResult === null) ? 'none' : '0 2px 12px rgba(0,0,0,0.15)',
               }}
             >
               {currentRound < rounds ? `${currentRound + 1}라운드 시작하기` : '완료'}

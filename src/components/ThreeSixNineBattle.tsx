@@ -18,7 +18,7 @@ function isClap(n: number): boolean {
   return String(n).split('').some(d => ['3', '6', '9'].includes(d))
 }
 
-const TIME_LIMIT = 1
+const TIME_LIMIT = 3
 
 type Phase = 'intro' | 'playing' | 'feedback' | 'result'
 
@@ -247,27 +247,10 @@ export default function ThreeSixNineBattle({ onComplete, roomCode, userId, myNam
   const feedbackColor = feedback?.correct ? '#4ade80' : '#ef4444'
   const circumference = 2 * Math.PI * 34
 
-  // Whether the current number is a clap number (only meaningful in playing phase)
-  const clapHint = phase === 'playing' && isClap(currentNum)
-
-  // Derive display colors based on phase and clap hint
-  const numColor = phase === 'feedback'
-    ? feedbackColor
-    : clapHint
-      ? '#ef4444'
-      : 'var(--amber)'
-
-  const numGlow = phase === 'feedback'
-    ? `0 0 30px ${feedbackColor}80`
-    : clapHint
-      ? '0 0 40px rgba(239,68,68,0.55)'
-      : '0 0 30px rgba(245,158,11,0.5)'
-
-  const timerStroke = phase === 'feedback'
-    ? feedbackColor
-    : clapHint
-      ? '#ef4444'
-      : 'var(--amber)'
+  // Derive display colors based on phase only — no clap hints during play
+  const numColor = phase === 'feedback' ? feedbackColor : 'var(--amber)'
+  const numGlow  = phase === 'feedback' ? `0 0 30px ${feedbackColor}80` : '0 0 30px rgba(245,158,11,0.5)'
+  const timerStroke = phase === 'feedback' ? feedbackColor : 'var(--amber)'
 
   function buildFeedbackText() {
     if (!feedback) return null
@@ -410,18 +393,8 @@ export default function ThreeSixNineBattle({ onComplete, roomCode, userId, myNam
         </div>
       </div>
 
-      {/* Big number with optional red glow background for clap numbers */}
+      {/* Big number */}
       <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: roundCountdown !== null ? 0 : 1, transition: 'opacity 0.2s' }}>
-        {clapHint && (
-          <div style={{
-            position: 'absolute',
-            inset: '-12px -20px',
-            borderRadius: 20,
-            background: 'rgba(239,68,68,0.08)',
-            boxShadow: '0 0 32px 8px rgba(239,68,68,0.18)',
-            pointerEvents: 'none',
-          }} />
-        )}
         <div style={{
           fontFamily: "'Bebas Neue'", fontSize: 110,
           color: numColor,
@@ -478,7 +451,6 @@ export default function ThreeSixNineBattle({ onComplete, roomCode, userId, myNam
           <span style={{ fontSize: 32 }}>🔢</span>
           <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-muted)' }}>숫자</span>
         </button>
-        {/* 박수 button glows red when current number is a clap number */}
         <button
           onClick={() => handleAnswer(true)}
           disabled={isStarting || !isMyTurn || phase !== 'playing'}
@@ -486,24 +458,14 @@ export default function ThreeSixNineBattle({ onComplete, roomCode, userId, myNam
             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
             gap: 4, padding: '18px 8px', borderRadius: 16, flex: 1,
             cursor: isMyTurn && phase === 'playing' ? 'pointer' : 'default',
-            background: clapHint && isMyTurn && phase === 'playing'
-              ? 'rgba(239,68,68,0.10)'
-              : 'var(--surface)',
-            border: clapHint && isMyTurn && phase === 'playing'
-              ? '1px solid rgba(239,68,68,0.5)'
-              : '1px solid var(--border)',
-            boxShadow: clapHint && isMyTurn && phase === 'playing'
-              ? '0 0 14px rgba(239,68,68,0.28)'
-              : 'none',
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
             opacity: isMyTurn && phase === 'playing' ? 1 : 0.35,
             transition: 'all 0.15s ease',
           }}
         >
           <span style={{ fontSize: 32 }}>👏</span>
-          <span style={{
-            fontSize: 13, fontWeight: 600,
-            color: clapHint && isMyTurn && phase === 'playing' ? '#ef4444' : 'var(--text-muted)',
-          }}>박수</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-muted)' }}>박수</span>
         </button>
       </div>
 

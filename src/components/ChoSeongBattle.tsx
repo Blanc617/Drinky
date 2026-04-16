@@ -150,13 +150,18 @@ export default function ChoSeongBattle({ onComplete, roomCode, userId, myName, i
         }
         if (pIdx !== qIdxRef.current || !word) return
 
-        rankRef.current++
-        const rank = rankRef.current
+        // 중복 단어는 rank 미증가, 점수 미부여
+        const isDuplicate = answersRef.current.some(a => a.word === word)
 
-        if (uid === userId) {
-          const pts = Math.max(0, 4 - rank)
-          totalPointsRef.current += pts
-          setTotalPoints(totalPointsRef.current)
+        let rank = 0  // 0 = 중복 (순위 없음)
+        if (!isDuplicate) {
+          rankRef.current++
+          rank = rankRef.current
+          if (uid === userId) {
+            const pts = Math.max(0, 4 - rank)
+            totalPointsRef.current += pts
+            setTotalPoints(totalPointsRef.current)
+          }
         }
 
         const entry: AnswerEntry = { userId: uid, name, word, rank, ts }
@@ -205,13 +210,9 @@ export default function ChoSeongBattle({ onComplete, roomCode, userId, myName, i
     <div className="flex flex-col gap-4 w-full">
       <style>{`@keyframes slideIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}`}</style>
 
-      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.1em', textAlign: 'center' }}>
-        ROUND {qIdx + 1} / {questionsRef.current.length}
-      </div>
-
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>
-          {qIdx + 1} / {questionsRef.current.length}
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-dim)', letterSpacing: '0.1em' }}>
+          ROUND {qIdx + 1} / {questionsRef.current.length}
         </div>
         <div style={{
           fontFamily: "'Bebas Neue'", fontSize: 32, lineHeight: 1,
@@ -305,7 +306,7 @@ export default function ChoSeongBattle({ onComplete, roomCode, userId, myName, i
               }}
             >
               <span style={{ fontSize: 22, width: 34, textAlign: 'center', flexShrink: 0 }}>
-                {medals[a.rank - 1] ?? `${a.rank}위`}
+                {a.rank === 0 ? '—' : (medals[a.rank - 1] ?? `${a.rank}위`)}
               </span>
               <span style={{ flex: 1, fontSize: 14, color: 'var(--text)', fontWeight: a.userId === userId ? 700 : 400 }}>
                 {a.name}{a.userId === userId ? ' (나)' : ''}

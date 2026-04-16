@@ -39,6 +39,17 @@ export default function BalanceGameBattle({ onComplete, roomCode, userId, player
   isHostRef.current = isHost
   playerCountRef.current = players.length
 
+  function hostAdvance() {
+    if (nextTimerRef.current) clearInterval(nextTimerRef.current)
+    setNextCountdown(null)
+    const nextIdx = questionIdxRef.current + 1
+    if (nextIdx >= questionsRef.current.length) {
+      channelRef.current?.send({ type: 'broadcast', event: 'bg_done', payload: {} })
+    } else {
+      channelRef.current?.send({ type: 'broadcast', event: 'bg_next', payload: { questionIdx: nextIdx } })
+    }
+  }
+
   function checkReveal() {
     const totalVoted = Object.keys(voteMapRef.current).length
     if (totalVoted >= playerCountRef.current) {
@@ -48,26 +59,22 @@ export default function BalanceGameBattle({ onComplete, roomCode, userId, player
       const bCount = Object.values(vm).filter(v => v === 'B').length
       const myV = vm[userId]
       if (myV) {
-        const isMajority = (myV === 'A' && aCount >= bCount) || (myV === 'B' && bCount > aCount)
+        // 동점(aCount === bCount)은 모두 소수 취급 — A/B 비대칭 방지
+        const isMajority = aCount !== bCount && ((myV === 'A' && aCount > bCount) || (myV === 'B' && bCount > aCount))
         if (isMajority) {
           majorityScoreRef.current += 1
           setMajorityScore(majorityScoreRef.current)
         }
       }
       if (isHostRef.current) {
-        setNextCountdown(4)
-        let remaining = 4
+        setNextCountdown(20)
+        let remaining = 20
         const intervalId = setInterval(() => {
           remaining -= 1
           setNextCountdown(remaining)
           if (remaining <= 0) {
             clearInterval(intervalId)
-            const nextIdx = questionIdxRef.current + 1
-            if (nextIdx >= questionsRef.current.length) {
-              channelRef.current?.send({ type: 'broadcast', event: 'bg_done', payload: {} })
-            } else {
-              channelRef.current?.send({ type: 'broadcast', event: 'bg_next', payload: { questionIdx: nextIdx } })
-            }
+            hostAdvance()
           }
         }, 1000)
         nextTimerRef.current = intervalId
@@ -305,8 +312,22 @@ export default function BalanceGameBattle({ onComplete, roomCode, userId, player
           )}
 
           {nextCountdown !== null && (
-            <div style={{ fontSize: 12, color: 'var(--text-dim)', textAlign: 'center' }}>
-              {nextCountdown > 0 ? `다음 질문까지 ${nextCountdown}초` : '다음 질문으로 이동 중...'}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+              <div style={{ fontSize: 12, color: 'var(--text-dim)', textAlign: 'center' }}>
+                {nextCountdown > 0 ? `다음 질문까지 ${nextCountdown}초` : '다음 질문으로 이동 중...'}
+              </div>
+              {isHost && nextCountdown > 0 && (
+                <button
+                  onClick={hostAdvance}
+                  style={{
+                    padding: '8px 20px', borderRadius: 99, fontSize: 13, fontWeight: 700,
+                    background: 'var(--surface2)', border: '1px solid var(--border)',
+                    color: 'var(--text-muted)', cursor: 'pointer',
+                  }}
+                >
+                  지금 넘기기 →
+                </button>
+              )}
             </div>
           )}
         </>

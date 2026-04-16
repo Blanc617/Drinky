@@ -89,6 +89,8 @@ export default function MafiaGameBattle({ onComplete, roomCode, userId, myName, 
   const [winner, setWinner] = useState<'mafia' | 'citizens' | null>(null)
   const [discussTimeLeft, setDiscussTimeLeft] = useState(60)
   const [startCountdown, setStartCountdown] = useState(3)
+  const [dayVoteTied, setDayVoteTied] = useState(false)
+  const [dayVoteTimeLeft, setDayVoteTimeLeft] = useState<number | null>(null)
 
   // ── round state ──
   const [currentRound, setCurrentRound] = useState(1)
@@ -102,8 +104,8 @@ export default function MafiaGameBattle({ onComplete, roomCode, userId, myName, 
   const channelRef = useRef<ReturnType<ReturnType<typeof createClient>['channel']> | null>(null)
   const onCompleteRef = useRef(onComplete)
   onCompleteRef.current = onComplete
-  // host collects night actions
-  const nightActionsRef = useRef<{ mafia?: string; police?: string; doctor?: string }>({})
+  // host collects night actions — mafiaVotes 배열로 다수결 처리
+  const nightActionsRef = useRef<{ mafiaVotes?: { actorId: string; targetId: string }[]; police?: string; doctor?: string }>({})
   // stable refs for state used in callbacks
   const aliveIdsRef = useRef<string[]>(aliveIds)
   aliveIdsRef.current = aliveIds
@@ -111,6 +113,7 @@ export default function MafiaGameBattle({ onComplete, roomCode, userId, myName, 
   assignmentsRef.current = assignments
   const dayVoteMapRef = useRef<Record<string, string>>(dayVoteMap)
   dayVoteMapRef.current = dayVoteMap
+  const dayVoteTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const phaseRef = useRef<Phase>(phase)
   phaseRef.current = phase
 
@@ -150,17 +153,30 @@ export default function MafiaGameBattle({ onComplete, roomCode, userId, myName, 
     const actions = nightActionsRef.current
     const alivePolice = alive.find(id => assign[id] === '경찰')
     const aliveDoctor = alive.find(id => assign[id] === '의사')
+    const aliveMafiaCount = alive.filter(id => assign[id] === '마피아').length
 
     const needPolice = !!alivePolice
     const needDoctor = !!aliveDoctor
+    const mafiaVotes = actions.mafiaVotes ?? []
     const hasAll =
-      actions.mafia !== undefined &&
+      mafiaVotes.length >= aliveMafiaCount &&
       (!needPolice || actions.police !== undefined) &&
       (!needDoctor || actions.doctor !== undefined)
 
     if (!hasAll) return
 
-    let killedId: string | null = actions.mafia ?? null
+    // 마피아 투표 다수결로 타겟 결정 — 동점 시 랜덤
+    let killedId: string | null = null
+    if (mafiaVotes.length > 0) {
+      const tally: Record<string, number> = {}
+      for (const { targetId } of mafiaVotes) tally[targetId] = (tally[targetId] ?? 0) + 1
+      let maxV = 0; let tops: string[] = []
+      for (const [id, count] of Object.entries(tally)) {
+        if (count > maxV) { maxV = count; tops = [id] }
+        else if (count === maxV) tops.push(id)
+      }
+      killedId = tops[Math.floor(Math.random() * tops.length)]
+    }
     if (killedId && actions.doctor === killedId) killedId = null
 
     const policeId = alivePolice ?? ''
@@ -175,11 +191,11 @@ export default function MafiaGameBattle({ onComplete, roomCode, userId, myName, 
   }, [])
 
   // ── host: resolve day vote ──
-  const resolveDayVote = useCallback((voteMap: Record<string, string>, alive: string[], assign: Record<string, Role>) => {
-    // check if all alive players voted
+  const resolveDayVote = useCallback((voteMap: Record<string, string>, alive: string[], assign: Record<string, Role>, force = false) => {
+    // check if all alive players voted (skip when forced by timeout)
     const totalVoters = alive.length
     const votesReceived = Object.keys(voteMap).filter(vid => alive.includes(vid)).length
-    if (votesReceived < totalVoters) return
+    if (!force && votesReceived < totalVoters) return
 
     // tally
     const tally: Record<string, number> = {}
@@ -226,6 +242,33 @@ export default function MafiaGameBattle({ onComplete, roomCode, userId, myName, 
     }, 1000)
     return () => clearInterval(interval)
   }, [phase])
+
+  // ── day_vote 60초 타임아웃 ──
+  useEffect(() => {
+    if (phase !== 'day_vote') {
+      if (dayVoteTimerRef.current) { clearInterval(dayVoteTimerRef.current); dayVoteTimerRef.current = null }
+      setDayVoteTimeLeft(null)
+      return
+    }
+    const VOTE_TIME = 60
+    setDayVoteTimeLeft(VOTE_TIME)
+    let t = VOTE_TIME
+    dayVoteTimerRef.current = setInterval(() => {
+      t--
+      setDayVoteTimeLeft(t)
+      if (t <= 0) {
+        clearInterval(dayVoteTimerRef.current!)
+        dayVoteTimerRef.current = null
+        setDayVoteTimeLeft(null)
+        if (isHost) {
+          resolveDayVote(dayVoteMapRef.current, aliveIdsRef.current, assignmentsRef.current, true)
+        }
+      }
+    }, 1000)
+    return () => {
+      if (dayVoteTimerRef.current) { clearInterval(dayVoteTimerRef.current); dayVoteTimerRef.current = null }
+    }
+  }, [phase]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── broadcast channel ──
   useEffect(() => {
@@ -286,9 +329,14 @@ export default function MafiaGameBattle({ onComplete, roomCode, userId, myName, 
       // ── night action (host collects) ──
       .on('broadcast', { event: 'mafia_night_action' }, ({ payload }) => {
         if (!isHost) return
-        const { role, targetId } = payload as { role: Role; targetId: string; actorId: string }
+        const { role, targetId, actorId } = payload as { role: Role; targetId: string; actorId: string }
         const actions = nightActionsRef.current
-        if (role === '마피아') actions.mafia = targetId
+        if (role === '마피아') {
+          const existing = actions.mafiaVotes ?? []
+          // 같은 액터의 중복 투표 방지 (마지막 선택으로 덮어씀)
+          const filtered = existing.filter(v => v.actorId !== actorId)
+          actions.mafiaVotes = [...filtered, { actorId, targetId }]
+        }
         if (role === '경찰') actions.police = targetId
         if (role === '의사') actions.doctor = targetId
         resolveNight(aliveIdsRef.current, assignmentsRef.current)
@@ -340,6 +388,7 @@ export default function MafiaGameBattle({ onComplete, roomCode, userId, myName, 
         const { eliminatedId, winner: w } =
           payload as { eliminatedId: string | null; winner: 'mafia' | 'citizens' | null }
 
+        setDayVoteTied(eliminatedId === null && w === null)
         setEliminated(eliminatedId)
 
         setAliveIds(prev => {
@@ -402,6 +451,7 @@ export default function MafiaGameBattle({ onComplete, roomCode, userId, myName, 
         dayVoteMapRef.current = {}
         setEliminated(null)
         setWinner(null)
+        setDayVoteTied(false)
         nightActionsRef.current = {}
       })
 
@@ -979,7 +1029,14 @@ export default function MafiaGameBattle({ onComplete, roomCode, userId, myName, 
           <div style={{ width: '100%', maxWidth: 380, animation: 'dv-fadeUp 0.4s ease 0.05s both' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.1em' }}>투표 현황</span>
-              <span style={{ fontSize: 13, fontWeight: 700, color: votesCast === totalAlive ? '#4ade80' : '#fbbf24' }}>{votesCast} / {totalAlive}명</span>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                {dayVoteTimeLeft !== null && (
+                  <span style={{ fontFamily: "'Bebas Neue'", fontSize: 20, lineHeight: 1, color: dayVoteTimeLeft <= 10 ? '#ef4444' : 'rgba(255,255,255,0.35)', transition: 'color 0.3s' }}>
+                    {dayVoteTimeLeft}
+                  </span>
+                )}
+                <span style={{ fontSize: 13, fontWeight: 700, color: votesCast === totalAlive ? '#4ade80' : '#fbbf24' }}>{votesCast} / {totalAlive}명</span>
+              </div>
             </div>
             <div style={{ height: 5, borderRadius: 99, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
               <div style={{ height: '100%', width: `${totalAlive > 0 ? (votesCast / totalAlive) * 100 : 0}%`, background: votesCast === totalAlive ? '#4ade80' : 'linear-gradient(90deg, #ef4444, #f97316)', borderRadius: 99, transition: 'width 0.4s ease' }} />
@@ -1057,6 +1114,12 @@ export default function MafiaGameBattle({ onComplete, roomCode, userId, myName, 
                   </div>
                 )
               })}
+              {dayVoteTied && (
+                <div style={{ padding: '12px 16px', borderRadius: 14, background: 'rgba(251,191,36,0.12)', border: '1.5px solid rgba(251,191,36,0.35)', textAlign: 'center', animation: 'dv-fadeUp 0.4s ease' }}>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: '#fbbf24' }}>🤝 동점 — 아무도 처형되지 않습니다</div>
+                  <div style={{ fontSize: 12, color: 'rgba(251,191,36,0.6)', marginTop: 4 }}>밤이 다시 찾아옵니다</div>
+                </div>
+              )}
               <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', textAlign: 'center', marginTop: 4, animation: 'dv-pulse 2.5s ease infinite' }}>
                 모두 투표하면 자동으로 결과가 나옵니다
               </div>

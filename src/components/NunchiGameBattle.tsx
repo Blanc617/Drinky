@@ -143,7 +143,7 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
   function handleSlotTap(slotIdx: number) {
     if (phaseRef.current !== 'playing') return
     if (submittedRef.current) return
-    if (slotIdx > 0 && !roundClaimsRef.current.some(c => c.slotIdx === slotIdx - 1)) return
+    // 실제 눈치게임: 어떤 번호든 자유 선택 가능
     submittedRef.current = true
     myChoiceRef.current = slotIdx
     setMyChoice(slotIdx)
@@ -283,18 +283,22 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
         <div style={{
           background: '#eff6ff',
           border: '1px solid #bfdbfe',
-          borderRadius: 10, padding: '6px 14px',
+          borderRadius: 10, padding: '8px 14px',
           fontSize: 12, color: '#1d4ed8', fontWeight: 600,
-          textAlign: 'center',
+          textAlign: 'center', lineHeight: 1.7,
         }}>
-          번호를 하나 선점하세요 — 혼자 골라야 점수!
+          번호를 하나 선점하세요 — 혼자 골라야 점수!<br />
+          <span style={{ fontSize: 11, fontWeight: 500, opacity: 0.85 }}>
+            아무 번호나 선택 가능 · 혼자 선택해야 점수 · 빠를수록 높은 순위
+          </span>
         </div>
       )}
 
       {/* Waiting hint after choice */}
       {!isShowing && myChoice !== null && (
         <div style={{ fontSize: 12, color: '#64748b', textAlign: 'center', fontWeight: 500 }}>
-          선택 완료 · 다른 플레이어 기다리는 중...
+          선택 완료 · 다른 플레이어 기다리는 중...<br />
+          <span style={{ fontSize: 11, color: '#94a3b8' }}>혼자 선점 성공 시 순위대로 점수 — 1위가 최고점</span>
         </div>
       )}
 
@@ -339,8 +343,6 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
           const isSafe      = isShowing && claimers.length === 1
           const isEmpty     = isShowing && claimers.length === 0
           const taken       = !isShowing && claimers.length > 0
-          const prevClaimed = i === 0 || roundClaims.some(c => c.slotIdx === i - 1)
-          const locked      = !isShowing && myChoice === null && !prevClaimed
 
           // Colour scheme
           let bg = '#ffffff'
@@ -349,7 +351,7 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
           let shadow = '0 1px 4px rgba(0,0,0,0.06)'
 
           const submitted = myChoice !== null
-          if (locked || (submitted && !isMyChoice && !isShowing)) {
+          if (submitted && !isMyChoice && !isShowing) {
             bg = '#f8fafc'; border = '1.5px solid #e2e8f0'; numColor = '#cbd5e1'
           } else if (!isShowing && isMyChoice) {
             bg = '#eff6ff'; border = '2px solid #3b82f6'; numColor = '#1d4ed8'
@@ -368,15 +370,15 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
             <button
               key={i}
               onClick={() => handleSlotTap(i)}
-              disabled={isShowing || myChoice !== null || locked}
+              disabled={isShowing || myChoice !== null}
               style={{
                 position: 'relative',
                 display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                 gap: 4, borderRadius: 18,
                 aspectRatio: '1',
                 border, background: bg, boxShadow: shadow,
-                cursor: isShowing || myChoice !== null || locked ? 'default' : 'pointer',
-                opacity: (locked || (myChoice !== null && !isMyChoice && !isShowing)) ? 0.4 : 1,
+                cursor: isShowing || myChoice !== null ? 'default' : 'pointer',
+                opacity: (myChoice !== null && !isMyChoice && !isShowing) ? 0.4 : 1,
                 transition: 'all 0.15s ease',
                 WebkitTapHighlightColor: 'transparent',
                 padding: 8,
@@ -386,7 +388,6 @@ export default function NunchiGameBattle({ onComplete, roomCode, userId, myName,
               <span style={{ fontFamily: "'Bebas Neue'", fontSize: 48, lineHeight: 1, color: numColor, transition: 'color 0.2s' }}>
                 {i + 1}
               </span>
-
               {/* Status icon overlay (showing phase) */}
               {isShowing && !isEmpty && (
                 <span style={{
