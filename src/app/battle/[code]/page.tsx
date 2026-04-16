@@ -114,6 +114,7 @@ export default function BattleRoomPage() {
 
   // Stable refs (avoid stale closures in channel callbacks)
   const channelRef      = useRef<RealtimeChannel | null>(null)
+  const channelReadyRef = useRef(false)
   const playersRef      = useRef<Player[]>([])
   const doneMapRef      = useRef<Record<string, number>>({})
   const startedCountRef = useRef(0)
@@ -125,6 +126,7 @@ export default function BattleRoomPage() {
   const resultsCdIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const userIdRef           = useRef('')
   const amHostRef           = useRef(false)
+  const timeoutCountRef     = useRef(0)
 
   // ── Mount: read identity ──
   // battle_userId / battle_host_CODE / battle_name: sessionStorage (탭별 독립)
@@ -174,15 +176,19 @@ export default function BattleRoomPage() {
     dispatch({ type: 'SET_CHANNEL_STATUS', status: 'connecting' })
     const supabase = createClient()
 
-    // JWT 만료 방지: 토큰 갱신 시 Realtime에 반영
+    // JWT 만료 방지: 토큰 갱신 시 Realtime에 반영 (토큰이 있는 경우에만)
     const { data: { subscription: authSub } } = supabase.auth.onAuthStateChange((_event, session) => {
-      supabase.realtime.setAuth(session?.access_token ?? null)
+      if (session?.access_token) {
+        supabase.realtime.setAuth(session.access_token)
+      }
     })
     supabase.auth.startAutoRefresh()
-    // 30분마다 강제 갱신 (세션 없는 경우 대비)
+    // 30분마다 강제 갱신 (로그인 세션이 있는 경우 대비)
     const tokenRefreshTimer = setInterval(async () => {
       const { data } = await supabase.auth.refreshSession()
-      supabase.realtime.setAuth(data.session?.access_token ?? null)
+      if (data.session?.access_token) {
+        supabase.realtime.setAuth(data.session.access_token)
+      }
     }, 30 * 60 * 1000)
 
     const channel = supabase.channel(`battle:${code}`, {
@@ -278,10 +284,13 @@ export default function BattleRoomPage() {
       .subscribe(async (status, err) => {
         console.log('[Battle] channel status:', status, err ?? '')
         if (status === 'SUBSCRIBED') {
+          channelReadyRef.current = true
+          timeoutCountRef.current = 0
           dispatch({ type: 'SET_CHANNEL_STATUS', status: 'connected' })
           await channel.track({ name: myName, isHost: amHostRef.current })
         } else if (status === 'CHANNEL_ERROR') {
-          console.error('[Battle] channel error:', err)
+          channelReadyRef.current = false
+          if (err) console.error('[Battle] channel error:', err)
           const errStr = String(err ?? '')
           if (errStr.includes('InvalidJWTToken') || errStr.includes('expired')) {
             // 토큰 만료 → 갱신 후 Realtime에 반영하면 자동 재연결됨
@@ -292,13 +301,22 @@ export default function BattleRoomPage() {
             dispatch({ type: 'SET_CHANNEL_STATUS', status: 'error' })
           }
         } else if (status === 'TIMED_OUT') {
-          dispatch({ type: 'SET_CHANNEL_STATUS', status: 'timeout' })
+          channelReadyRef.current = false
+          timeoutCountRef.current++
+          // Supabase auto-retries on TIMED_OUT — only show error after 3 consecutive timeouts
+          if (timeoutCountRef.current >= 3) {
+            dispatch({ type: 'SET_CHANNEL_STATUS', status: 'timeout' })
+          } else {
+            dispatch({ type: 'SET_CHANNEL_STATUS', status: 'connecting' })
+          }
         } else if (status === 'CLOSED') {
+          channelReadyRef.current = false
           dispatch({ type: 'SET_CHANNEL_STATUS', status: 'closed' })
         }
       })
 
     return () => {
+      channelReadyRef.current = false
       if (autoFinishRef.current) clearTimeout(autoFinishRef.current)
       if (cdIntervalRef.current) clearInterval(cdIntervalRef.current)
       if (resultsCdIntervalRef.current) clearInterval(resultsCdIntervalRef.current)
@@ -309,11 +327,15 @@ export default function BattleRoomPage() {
   }, [userId, myName, code, checkAllDone])
 
   // ── Actions ──
+  function bcast(payload: { type: 'broadcast'; event: string; payload: Record<string, unknown> }) {
+    if (!channelReadyRef.current) return
+    channelRef.current?.send(payload)
+  }
   function handleSelectGame(key: GameKey) {
     if (!amHost) return
     dispatch({ type: 'SET_GAME', game: key })
     selectedGameRef.current = key
-    channelRef.current?.send({ type: 'broadcast', event: 'game_select', payload: { gameKey: key } })
+    bcast({ type: 'broadcast', event: 'game_select', payload: { gameKey: key } })
   }
 
   function handleStart() {
