@@ -7,7 +7,7 @@ interface Props {
 }
 
 const ROUNDS = 4
-const TIME_LIMIT = 1.5 // seconds
+const TIME_LIMIT = 1.2 // seconds
 
 const GESTURES = [
   { id: 'rock',     emoji: '✊', label: '주먹' },
@@ -39,6 +39,7 @@ export default function RpsLoserTest({ onComplete }: Props) {
   const timesRef = useRef<number[]>([])
   const roundStartRef = useRef(0)
   const roundRef = useRef(0)
+  const isPracticeRef = useRef(false)
 
   const finishGame = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current)
@@ -49,10 +50,11 @@ export default function RpsLoserTest({ onComplete }: Props) {
     const speedBonus = Math.max(0, ((TIME_LIMIT * 1000 - avgTime) / (TIME_LIMIT * 1000)) * 30)
     const score = Math.min(100, Math.round(accuracy * 0.7 + speedBonus))
     setPhase('result')
-    setTimeout(() => onComplete(score), 1500)
+    if (!isPracticeRef.current) setTimeout(() => onComplete(score), 1500)
   }, [onComplete])
 
   const startRound = useCallback((roundNum: number) => {
+    if (isPracticeRef.current && roundNum >= 1) { finishGame(); return }
     if (roundNum >= ROUNDS) { finishGame(); return }
     roundRef.current = roundNum
     const gesture = GESTURES[Math.floor(Math.random() * GESTURES.length)]
@@ -145,7 +147,11 @@ export default function RpsLoserTest({ onComplete }: Props) {
         </div>
 
         <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>제한시간 {TIME_LIMIT}초 · {ROUNDS}라운드</div>
-        <button className="btn-primary" onClick={startCountdown}>시작하기</button>
+        <button className="btn-secondary" style={{ marginBottom: 0 }} onClick={() => {
+          isPracticeRef.current = true
+          startCountdown()
+        }}>연습하기</button>
+        <button className="btn-primary" onClick={() => { isPracticeRef.current = false; startCountdown() }}>시작하기</button>
       </div>
     )
   }
@@ -179,7 +185,10 @@ export default function RpsLoserTest({ onComplete }: Props) {
           {correctRef.current}<span style={{ fontSize: 32 }}>/{ROUNDS}</span>
         </div>
         <div style={{ fontSize: 14, color: 'var(--text-muted)' }}>정답률 {accuracy}%</div>
-        <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>결과 저장 중...</div>
+        {isPracticeRef.current
+          ? <button className="btn-secondary" onClick={() => { isPracticeRef.current = false; setPhase('intro') }}>돌아가기</button>
+          : <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>결과 저장 중...</div>
+        }
       </div>
     )
   }

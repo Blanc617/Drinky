@@ -1,9 +1,9 @@
 import { BaselineScore, IntoxicationResult, INTOXICATION_LEVELS } from '@/types'
 
 const WEIGHTS = {
-  reaction: 0.25,
+  reaction: 0.20,      // 반응속도는 노이즈가 많아 비중 축소
   cognition: 0.25,
-  pronunciation: 0.25,
+  pronunciation: 0.30, // 스트룹 테스트는 알코올 영향에 민감해 비중 확대
   balance: 0.25,
 }
 

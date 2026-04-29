@@ -12,6 +12,7 @@ type CellState = 'idle' | 'mole' | 'bomb'
 const GRID_SIZE = 9
 const ROUNDS = 5
 const DISPLAY_DURATION = 600 // 두더지/폭탄 표시 시간 (ms)
+const ROUND_DELAYS = [200, 180, 160, 160, 160] // 라운드별 대기 간격 (ms)
 
 export default function ReactionTest({ onComplete }: Props) {
   const [phase, setPhase] = useState<Phase>('intro')
@@ -27,6 +28,7 @@ export default function ReactionTest({ onComplete }: Props) {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const roundRef = useRef(0)
   const reactedRef = useRef(false)
+  const isPracticeRef = useRef(false)
 
   const finishGame = useCallback((times: number[], missCount: number) => {
     setPhase('result')
@@ -38,16 +40,20 @@ export default function ReactionTest({ onComplete }: Props) {
     const speedBonus = Math.max(0, (DISPLAY_DURATION - avg) / DISPLAY_DURATION * 30)
     const finalScore = Math.min(100, Math.round(accuracy * 0.7 + speedBonus))
     setScore(finalScore)
-    setTimeout(() => onComplete(finalScore), 1500)
+    if (!isPracticeRef.current) setTimeout(() => onComplete(finalScore), 1500)
   }, [onComplete])
 
   const runRound = useCallback((currentRound: number, prevTimes: number[], prevMisses: number) => {
+    if (isPracticeRef.current && currentRound >= 1) {
+      finishGame(prevTimes, prevMisses)
+      return
+    }
     if (currentRound >= ROUNDS) {
       finishGame(prevTimes, prevMisses)
       return
     }
 
-    const delay = 800
+    const delay = ROUND_DELAYS[currentRound] ?? 160
     timeoutRef.current = setTimeout(() => {
       const isMole = Math.random() > 0.3
       const idx = Math.floor(Math.random() * GRID_SIZE)
@@ -163,7 +169,8 @@ export default function ReactionTest({ onComplete }: Props) {
             <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>폭탄 → 탭하면 패널티</span>
           </div>
         </div>
-        <button className="btn-primary" onClick={startGame}>시작하기</button>
+        <button className="btn-secondary" onClick={() => { isPracticeRef.current = true; startGame() }}>연습하기</button>
+        <button className="btn-primary" onClick={() => { isPracticeRef.current = false; startGame() }}>시작하기</button>
       </div>
     )
   }
@@ -194,7 +201,10 @@ export default function ReactionTest({ onComplete }: Props) {
             <span style={{ fontWeight: 700 }}>{avg}ms</span>
           </div>
         </div>
-        <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>다음 테스트로 이동 중...</div>
+        {isPracticeRef.current
+          ? <button className="btn-secondary" onClick={() => { isPracticeRef.current = false; setPhase('intro') }}>돌아가기</button>
+          : <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>다음 테스트로 이동 중...</div>
+        }
       </div>
     )
   }

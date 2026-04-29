@@ -114,7 +114,7 @@ export default function Home() {
       if (data.user) {
         const { data: baseline } = await supabase
           .from('measurements').select('id').eq('user_id', data.user.id)
-          .eq('type', 'baseline').limit(1).single()
+          .eq('type', 'baseline').limit(1).maybeSingle()
         setHasBaseline(!!baseline)
       }
       setLoading(false)
@@ -312,7 +312,7 @@ export default function Home() {
 
           {/* ── Bottom actions ── */}
           {user ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
               {showFirstTimer && (
                 <div style={{
                   position: 'fixed', inset: 0, zIndex: 50,
@@ -335,11 +335,15 @@ export default function Home() {
                   </div>
                 </div>
               )}
-              <button onClick={handleMeasure} className="btn-primary">
-                지금 바로 측정하기
+
+              {/* 대전 모드 */}
+              <button onClick={() => router.push('/battle')} className="btn-primary" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '11px 24px' }}>
+                <span>🎮</span> 대전 모드
               </button>
-              <button onClick={() => router.push('/history')} className="btn-secondary">
-                나의 음주 역사 📋
+
+              {/* 혼자 플레이 */}
+              <button onClick={handleMeasure} className="btn-secondary" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '11px 24px' }}>
+                <span>🧪</span> 혼자 측정하기
               </button>
             </div>
           ) : (

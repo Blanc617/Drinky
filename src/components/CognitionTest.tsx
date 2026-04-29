@@ -15,6 +15,11 @@ const COLORS = [
 
 const START_LENGTH = 4
 const MAX_ROUNDS = 3 // 최대 3라운드
+const ROUND_TIMING = [
+  { display: 500, off: 200, gap: 300 },
+  { display: 450, off: 180, gap: 270 },
+  { display: 400, off: 160, gap: 250 },
+]
 
 type Phase = 'intro' | 'showing' | 'input' | 'feedback' | 'result'
 
@@ -27,14 +32,16 @@ export default function CognitionTest({ onComplete }: Props) {
   const [correctRounds, setCorrectRounds] = useState(0)
   const [lastOk, setLastOk] = useState(true)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isPracticeRef = useRef(false)
 
   function generateSequence(length: number): number[] {
     return Array.from({ length }, () => Math.floor(Math.random() * 4))
   }
 
-  async function showSequence(seq: number[]) {
+  async function showSequence(seq: number[], roundNum: number) {
     setPhase('showing')
     setUserInput([])
+    const timing = ROUND_TIMING[roundNum] ?? ROUND_TIMING[ROUND_TIMING.length - 1]
 
     for (let i = 0; i < seq.length; i++) {
       await new Promise<void>((resolve) => {
@@ -43,11 +50,11 @@ export default function CognitionTest({ onComplete }: Props) {
           timeoutRef.current = setTimeout(() => {
             setActiveColor(null)
             resolve()
-          }, 500)
-        }, i === 0 ? 500 : 300)
+          }, timing.display)
+        }, i === 0 ? timing.display : timing.gap)
       })
       await new Promise<void>((resolve) => {
-        timeoutRef.current = setTimeout(resolve, 200)
+        timeoutRef.current = setTimeout(resolve, timing.off)
       })
     }
 
@@ -58,7 +65,7 @@ export default function CognitionTest({ onComplete }: Props) {
     const len = START_LENGTH + roundNum
     const seq = generateSequence(len)
     setSequence(seq)
-    showSequence(seq)
+    showSequence(seq, roundNum)
   }
 
   function handleColorTap(colorId: number) {
@@ -72,15 +79,14 @@ export default function CognitionTest({ onComplete }: Props) {
 
     // 현재 입력이 틀렸는지 확인
     if (newInput[newInput.length - 1] !== sequence[newInput.length - 1]) {
-      // 틀림
       setLastOk(false)
       setPhase('feedback')
       const next = round + 1
       setTimeout(() => {
-        if (next >= MAX_ROUNDS) {
+        if (isPracticeRef.current || next >= MAX_ROUNDS) {
           const score = Math.round((correctRounds / MAX_ROUNDS) * 100)
           setPhase('result')
-          setTimeout(() => onComplete(score), 1200)
+          if (!isPracticeRef.current) setTimeout(() => onComplete(score), 1200)
         } else {
           setRound(next)
           startRound(next)
@@ -97,10 +103,10 @@ export default function CognitionTest({ onComplete }: Props) {
       setPhase('feedback')
       const next = round + 1
       setTimeout(() => {
-        if (next >= MAX_ROUNDS) {
+        if (isPracticeRef.current || next >= MAX_ROUNDS) {
           const score = Math.round((newCorrect / MAX_ROUNDS) * 100)
           setPhase('result')
-          setTimeout(() => onComplete(score), 1200)
+          if (!isPracticeRef.current) setTimeout(() => onComplete(score), 1200)
         } else {
           setRound(next)
           startRound(next)
@@ -133,7 +139,8 @@ export default function CognitionTest({ onComplete }: Props) {
             총 {MAX_ROUNDS}라운드 · 라운드마다 한 칸씩 늘어납니다
           </div>
         </div>
-        <button className="btn-primary" onClick={() => startRound(0)}>시작하기</button>
+        <button className="btn-secondary" onClick={() => { isPracticeRef.current = true; startRound(0) }}>연습하기</button>
+        <button className="btn-primary" onClick={() => { isPracticeRef.current = false; startRound(0) }}>시작하기</button>
       </div>
     )
   }
@@ -151,7 +158,10 @@ export default function CognitionTest({ onComplete }: Props) {
         <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
           {correctRounds} / {MAX_ROUNDS} 라운드 성공
         </div>
-        <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>다음 테스트로 이동 중...</div>
+        {isPracticeRef.current
+          ? <button className="btn-secondary" onClick={() => { isPracticeRef.current = false; setPhase('intro') }}>돌아가기</button>
+          : <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>다음 테스트로 이동 중...</div>
+        }
       </div>
     )
   }
